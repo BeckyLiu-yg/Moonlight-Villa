@@ -65,7 +65,7 @@ st.caption("Cain's Private Lounge")
 # --- 5. 头像诊断系统 (Avatar Check) ---
 # 定义文件名
 file_cain = "cain.png"
-file_becky = "becky.png"
+file_becky = "becky.jpg"
 
 # 检查文件是否存在
 cain_exists = os.path.exists(file_cain)
@@ -169,3 +169,4 @@ if prompt := st.chat_input("在紫罗兰花丛中低语..."):
             audio_file = generate_cain_voice(full_response, fish_key, CAIN_MODEL_ID)
             if audio_file:
                 st.audio(audio_file, format="audio/mp3", autoplay=True)
+
