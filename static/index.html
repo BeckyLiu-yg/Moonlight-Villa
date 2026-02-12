@@ -6,62 +6,44 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0a0a12">
-<title>月光别墅 - Moonlight Villa</title>
+<title>月光罅隙</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500;600&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100dvh;overflow:hidden;overscroll-behavior:none;background:#07060e;color:#e8e0f0;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}
 body{font-family:'Noto Serif SC','Georgia',serif}
 #root{height:100dvh}
-
-/* === Animations === */
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-@keyframes fadeOut{from{opacity:1}to{opacity:0}}
 @keyframes breathe{0%,100%{opacity:.6}50%{opacity:1}}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-@keyframes floatSlow{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-12px) rotate(3deg)}}
 @keyframes shimmer{0%{background-position:-200% center}100%{background-position:200% center}}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
 @keyframes dots{0%{content:'.'}33%{content:'..'}66%{content:'...'}}
 @keyframes sceneIn{from{opacity:0;transform:scale(1.05)}to{opacity:1;transform:scale(1)}}
 @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
-@keyframes ripple{0%{box-shadow:0 0 0 0 rgba(168,130,255,.25)}100%{box-shadow:0 0 0 16px rgba(168,130,255,0)}}
 @keyframes starTwinkle{0%,100%{opacity:.2;transform:scale(.8)}50%{opacity:.8;transform:scale(1.2)}}
-@keyframes glowPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.3)}}
-
+@keyframes glowPulse{0%,100%{opacity:.5}50%{opacity:.9}}
+@keyframes eventSlide{from{opacity:0;transform:translateX(-20px)}to{opacity:1;transform:translateX(0)}}
 .fade-in{animation:fadeIn .5s ease-out both}
 .slide-up{animation:slideUp .6s cubic-bezier(.23,1,.32,1) both}
 .scene-transition{animation:sceneIn .8s ease-out both}
-
-/* Scrollbar */
 .hide-scroll::-webkit-scrollbar{display:none}
 .hide-scroll{-ms-overflow-style:none;scrollbar-width:none}
-
-/* Typewriter cursor */
 .cursor{display:inline-block;width:2px;height:1em;background:currentColor;margin-left:2px;animation:blink .7s infinite;vertical-align:text-bottom}
-
-/* Loading dots */
 .loading-dots::after{content:'.';animation:dots 1.2s infinite steps(1)}
-
-/* Touch */
 button,input{-webkit-tap-highlight-color:transparent}
 input::placeholder{color:#6a6080}
 </style>
 </head>
 <body>
 <div id="root"></div>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
-
 <script type="text/babel">
-const {useState,useEffect,useRef,useCallback,useMemo,useReducer}=React;
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
 
-/* ============================================================
-   CONFIG & DATA
-   ============================================================ */
 const API=window.location.origin;
 const SCENES={
   garden:{name:'月光花园',icon:'🌹',accent:'#b088ff',accentRgb:'176,136,255',
@@ -97,180 +79,157 @@ const MOOD_FX={
   vulnerable:{filter:'saturate(.85) brightness(.9)',overlay:'rgba(180,140,200,.05)'},
 };
 
-/* ============================================================
-   API SERVICE
-   ============================================================ */
+/* ── API ── */
 const api={
   post:async(url,body)=>{const r=await fetch(API+url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){const e=await r.json().catch(()=>({error:'网络错误'}));throw new Error(e.error||'请求失败')}return r.json()},
   createSession:()=>api.post('/api/session',{}),
   chat:(sid,msg,scene)=>api.post('/api/chat',{session_id:sid,message:msg,scene}),
   changeScene:(sid,scene)=>api.post('/api/scene',{session_id:sid,scene}),
+  randomEvent:(sid)=>api.post('/api/random_event',{session_id:sid}),
   save:(sid,slot)=>api.post('/api/save',{session_id:sid,slot}),
   load:(sid,slot)=>api.post('/api/load',{session_id:sid,slot}),
-  async tts(text){const r=await fetch(API+'/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});if(!r.ok)throw new Error('语音合成失败');return r.blob()},
+  async ttsBlob(text){
+    const r=await fetch(API+'/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,pre_cleaned:true})});
+    if(!r.ok)throw new Error('TTS失败');return r.blob();
+  },
 };
 
-/* ============================================================
-   WEB AUDIO — AMBIENT SOUND ENGINE
-   ============================================================ */
-class AmbientEngine{
-  constructor(){this.ctx=null;this.master=null;this.nodes=[];this.vol=.3;this.active=false}
-  
+/* ── MUSIC ENGINE — Melodic ambient per scene ── */
+class MusicEngine{
+  constructor(){this.ctx=null;this.master=null;this.nodes=[];this.vol=.25;this.active=false;this.scene=null}
+
   init(){
     if(this.ctx)return;
     this.ctx=new(window.AudioContext||window.webkitAudioContext)();
-    this.master=this.ctx.createGain();
-    this.master.gain.value=0;
+    this.master=this.ctx.createGain();this.master.gain.value=0;
+    // reverb via delay
+    this.reverb=this.ctx.createConvolver();
+    this._makeReverb();
+    this.wet=this.ctx.createGain();this.wet.gain.value=.35;
+    this.dry=this.ctx.createGain();this.dry.gain.value=.7;
+    this.bus=this.ctx.createGain();this.bus.gain.value=1;
+    this.bus.connect(this.dry);this.dry.connect(this.master);
+    this.bus.connect(this.reverb);this.reverb.connect(this.wet);this.wet.connect(this.master);
     this.master.connect(this.ctx.destination);
     this.active=true;
   }
-  
-  stop(){
-    this.nodes.forEach(n=>{try{n.stop?.()}catch(e){}});
-    this.nodes=[];
-    if(this.master)this.master.gain.setTargetAtTime(0,this.ctx.currentTime,.5);
+
+  _makeReverb(){
+    const len=this.ctx.sampleRate*2.5;
+    const buf=this.ctx.createBuffer(2,len,this.ctx.sampleRate);
+    for(let ch=0;ch<2;ch++){
+      const d=buf.getChannelData(ch);
+      for(let i=0;i<len;i++){d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.5)}
+    }
+    this.reverb.buffer=buf;
   }
-  
-  setVolume(v){
-    this.vol=v;
-    if(this.master&&this.ctx)this.master.gain.setTargetAtTime(v,this.ctx.currentTime,.3);
-  }
-  
-  playScene(scene){
-    if(!this.ctx)return;
-    this.stop();
-    setTimeout(()=>{
-      if(!this.active)return;
-      const t=this.ctx.currentTime;
-      this.master.gain.setTargetAtTime(this.vol,t,.8);
-      
-      // Different ambience per scene
-      if(scene==='garden')this._garden();
-      else if(scene==='library')this._library();
-      else if(scene==='ballroom')this._ballroom();
-      else if(scene==='attic')this._attic();
-      else if(scene==='basement')this._basement();
-    },300);
-  }
-  
-  _noise(type='lowpass',freq=800,gain=.08){
-    const buf=this.ctx.createBuffer(1,this.ctx.sampleRate*4,this.ctx.sampleRate);
-    const d=buf.getChannelData(0);
-    for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1);
-    const src=this.ctx.createBufferSource();
-    src.buffer=buf;src.loop=true;
-    const flt=this.ctx.createBiquadFilter();
-    flt.type=type;flt.frequency.value=freq;
+
+  stop(){this.nodes.forEach(n=>{try{n.stop?.()}catch(e){}});this.nodes=[];this.scene=null}
+
+  pause(){if(this.ctx?.state==='running')this.ctx.suspend()}
+  resume(){if(this.ctx?.state==='suspended')this.ctx.resume()}
+
+  setVolume(v){this.vol=v;if(this.master&&this.ctx)this.master.gain.setTargetAtTime(v,this.ctx.currentTime,.3)}
+
+  _osc(freq,type='sine',gain=.02,detune=0){
+    const o=this.ctx.createOscillator();o.type=type;o.frequency.value=freq;o.detune.value=detune;
     const g=this.ctx.createGain();g.gain.value=gain;
-    src.connect(flt);flt.connect(g);g.connect(this.master);
-    src.start();this.nodes.push(src);
-    return{src,filter:flt,gain:g};
+    o.connect(g);g.connect(this.bus);o.start();this.nodes.push(o);
+    return{o,g};
   }
-  
-  _tone(freq,type='sine',gain=.03,detune=0){
-    const o=this.ctx.createOscillator();
-    o.type=type;o.frequency.value=freq;o.detune.value=detune;
-    const g=this.ctx.createGain();g.gain.value=gain;
-    o.connect(g);g.connect(this.master);
-    o.start();this.nodes.push(o);
-    return{osc:o,gain:g};
+
+  _arp(notes,interval=2.5,gain=.015){
+    // Arpeggiate through notes with gentle volume envelope
+    const t=this.ctx.currentTime;
+    notes.forEach((freq,i)=>{
+      const o=this.ctx.createOscillator();o.type='sine';o.frequency.value=freq;
+      const g=this.ctx.createGain();g.gain.value=0;
+      const period=interval*notes.length;
+      const noteStart=interval*i;
+      // Loop the arpeggio
+      const schedule=()=>{
+        const now=this.ctx.currentTime;
+        for(let rep=0;rep<40;rep++){
+          const s=now+rep*period+noteStart;
+          g.gain.setValueAtTime(0,s);
+          g.gain.linearRampToValueAtTime(gain,s+.15);
+          g.gain.setValueAtTime(gain,s+interval*.6);
+          g.gain.linearRampToValueAtTime(0,s+interval*.95);
+        }
+      };
+      schedule();
+      o.connect(g);g.connect(this.bus);o.start();this.nodes.push(o);
+    });
   }
-  
-  _garden(){
-    // Soft wind
-    this._noise('lowpass',400,.06);
-    // High crickets
-    this._noise('bandpass',4200,.015);
-    // Gentle pad chord
-    this._tone(220,'sine',.012);
-    this._tone(330,'sine',.008);
-    this._tone(440,'sine',.005);
-    // Occasional chime (LFO modulated)
-    const ch=this._tone(880,'sine',0);
-    const lfo=this.ctx.createOscillator();
-    lfo.frequency.value=.15;
-    const lfoG=this.ctx.createGain();lfoG.gain.value=.015;
-    lfo.connect(lfoG);lfoG.connect(ch.gain.gain);
-    lfo.start();this.nodes.push(lfo);
+
+  _pad(freqs,gain=.012){
+    freqs.forEach((f,i)=>{
+      const o=this.ctx.createOscillator();o.type='sine';o.frequency.value=f;
+      const g=this.ctx.createGain();g.gain.value=gain;
+      // Gentle LFO for movement
+      const lfo=this.ctx.createOscillator();lfo.frequency.value=.05+i*.02;
+      const lg=this.ctx.createGain();lg.gain.value=gain*.3;
+      lfo.connect(lg);lg.connect(g.gain);lfo.start();this.nodes.push(lfo);
+      o.connect(g);g.connect(this.bus);o.start();this.nodes.push(o);
+    });
   }
-  
-  _library(){
-    // Crackling fire
-    this._noise('bandpass',2000,.04);
-    this._noise('highpass',3000,.01);
-    // Deep warmth
-    this._tone(110,'sine',.015);
-    this._tone(165,'sine',.008);
-    // Soft ticking
-    const tick=this._tone(1200,'square',0);
-    const lfo=this.ctx.createOscillator();
-    lfo.frequency.value=1;
-    const lg=this.ctx.createGain();lg.gain.value=.008;
-    lfo.connect(lg);lg.connect(tick.gain.gain);
-    lfo.start();this.nodes.push(lfo);
+
+  playScene(scn){
+    if(!this.ctx||scn===this.scene)return;
+    this.stop();this.scene=scn;
+    const t=this.ctx.currentTime;
+    this.master.gain.setTargetAtTime(this.vol,t,1.2);
+
+    if(scn==='garden'){
+      // D minor pentatonic, gentle and romantic
+      this._pad([146.8,220,293.7],0.01);  // D3,A3,D4
+      this._arp([587.3,698.5,880,1046.5,880,698.5],1.8,.012);  // D5,F5,A5,C6 arp
+      // High shimmer
+      this._osc(1760,'sine',.003);
+    }
+    else if(scn==='library'){
+      // Warm C major, cozy fireplace feel
+      this._pad([130.8,196,261.6],0.012);  // C3,G3,C4
+      this._arp([523.3,659.3,784,1047],2.2,.01);  // C5,E5,G5,C6
+      // Soft crackling texture
+      this._osc(2200,'sine',.002);
+      this._osc(110,'sine',.008);  // deep warmth
+    }
+    else if(scn==='ballroom'){
+      // Waltz-like, E♭ major, elegant
+      this._pad([155.6,233.1,311.1],0.011);  // E♭3,B♭3,E♭4
+      // Waltz rhythm: 3/4 feel
+      this._arp([622.3,784,932.3,784,622.3,466.2],1.2,.013);
+      this._osc(1244.5,'sine',.003);  // high sparkle
+    }
+    else if(scn==='attic'){
+      // Music box feel, A minor, ethereal
+      this._pad([110,165,220],0.008);  // A2,E3,A3
+      // Music box arpeggio - high and delicate
+      this._arp([880,1046.5,1318.5,1568,1318.5,1046.5],1.5,.01);
+      this._osc(55,'sine',.006);  // sub bass for eeriness
+    }
+    else if(scn==='basement'){
+      // Dark, B♭ minor, tense but beautiful
+      this._pad([58.3,87.3,116.5],0.013);  // B♭1,F2,B♭2
+      this._arp([466.2,554.4,622.3,466.2],3,.008);  // slow, sparse
+      // Deep pulse
+      const p=this._osc(46.2,'sine',0);
+      const lfo=this.ctx.createOscillator();lfo.frequency.value=.07;
+      const lg=this.ctx.createGain();lg.gain.value=.012;
+      lfo.connect(lg);lg.connect(p.g.gain);lfo.start();this.nodes.push(lfo);
+    }
   }
-  
-  _ballroom(){
-    // Ethereal reverb pad
-    this._tone(261.6,'sine',.015);  // C4
-    this._tone(329.6,'sine',.012);  // E4
-    this._tone(392,'sine',.01);     // G4
-    this._tone(523.3,'sine',.006);  // C5
-    // Shimmer
-    this._noise('bandpass',6000,.008);
-    // Slow LFO on pitch for dreamy feel
-    const pad=this._tone(196,'triangle',.008);
-    const lfo=this.ctx.createOscillator();
-    lfo.frequency.value=.08;
-    const lg=this.ctx.createGain();lg.gain.value=3;
-    lfo.connect(lg);lg.connect(pad.osc.detune);
-    lfo.start();this.nodes.push(lfo);
-  }
-  
-  _attic(){
-    // Wind through gaps
-    this._noise('bandpass',600,.05);
-    // Eerie tone
-    this._tone(185,'sine',.01);
-    this._tone(277,'sine',.006,5);
-    // Music box hint
-    const mb=this._tone(1047,'sine',0);
-    const lfo=this.ctx.createOscillator();
-    lfo.frequency.value=.1;
-    const lg=this.ctx.createGain();lg.gain.value=.006;
-    lfo.connect(lg);lg.connect(mb.gain.gain);
-    lfo.start();this.nodes.push(lfo);
-  }
-  
-  _basement(){
-    // Deep rumble
-    this._noise('lowpass',150,.07);
-    // Water drips
-    this._noise('bandpass',3500,.008);
-    // Ominous bass
-    this._tone(55,'sine',.02);
-    this._tone(82.5,'sine',.01);
-    // Slow pulse
-    const p=this._tone(110,'sine',0);
-    const lfo=this.ctx.createOscillator();
-    lfo.frequency.value=.05;
-    const lg=this.ctx.createGain();lg.gain.value=.015;
-    lfo.connect(lg);lg.connect(p.gain.gain);
-    lfo.start();this.nodes.push(lfo);
-  }
-  
+
   destroy(){this.stop();this.active=false;this.ctx?.close()}
 }
 
-/* ============================================================
-   HOOKS
-   ============================================================ */
+/* ── HOOKS ── */
 function useResponsive(){
   const[s,set]=useState({w:window.innerWidth,h:window.innerHeight});
   useEffect(()=>{
     const fn=()=>set({w:window.innerWidth,h:window.visualViewport?.height||window.innerHeight});
-    window.addEventListener('resize',fn);
-    window.visualViewport?.addEventListener('resize',fn);
+    window.addEventListener('resize',fn);window.visualViewport?.addEventListener('resize',fn);
     return()=>{window.removeEventListener('resize',fn);window.visualViewport?.removeEventListener('resize',fn)};
   },[]);
   const tiny=s.w<340,sm=s.w<375,short=s.h<650;
@@ -278,14 +237,11 @@ function useResponsive(){
 }
 
 function useTypewriter(text,speed=30){
-  const[d,setD]=useState('');
-  const[done,setDone]=useState(true);
-  const ref=useRef(0);
+  const[d,setD]=useState('');const[done,setDone]=useState(true);const ref=useRef(0);
   useEffect(()=>{
     if(!text){setD('');setDone(true);return}
     setD('');setDone(false);ref.current=0;
-    const t=setInterval(()=>{
-      ref.current++;
+    const t=setInterval(()=>{ref.current++;
       if(ref.current>=text.length){setD(text);setDone(true);clearInterval(t)}
       else setD(text.slice(0,ref.current));
     },speed);
@@ -294,52 +250,34 @@ function useTypewriter(text,speed=30){
   return{display:d,done,skip:useCallback(()=>{setD(text||'');setDone(true)},[text])};
 }
 
-/* ============================================================
-   SUB-COMPONENTS
-   ============================================================ */
-
-// ── Stars Background ──
+/* ── SUB COMPONENTS ── */
 function Stars({count=40}){
   const stars=useMemo(()=>Array.from({length:count},(_,i)=>({
     id:i,left:Math.random()*100,top:Math.random()*100,
     size:1+Math.random()*2,delay:Math.random()*5,dur:2+Math.random()*4,
   })),[count]);
   return <div style={{position:'absolute',inset:0,pointerEvents:'none',overflow:'hidden'}}>
-    {stars.map(s=><div key={s.id} style={{
-      position:'absolute',left:s.left+'%',top:s.top+'%',
-      width:s.size,height:s.size,borderRadius:'50%',
-      background:'#fff',
-      animation:`starTwinkle ${s.dur}s ${s.delay}s infinite ease-in-out`,
-    }}/>)}
+    {stars.map(s=><div key={s.id} style={{position:'absolute',left:s.left+'%',top:s.top+'%',
+      width:s.size,height:s.size,borderRadius:'50%',background:'#fff',
+      animation:`starTwinkle ${s.dur}s ${s.delay}s infinite ease-in-out`}}/>)}
   </div>;
 }
 
-// ── Scene Particles ──
 function Particles({sceneKey,accent}){
   const ps=useMemo(()=>{
-    const cfg={
-      garden:{chars:['✦','·','✧','❀'],n:14},library:{chars:['✦','·','✧'],n:8},
-      ballroom:{chars:['✦','✧','·','⋆'],n:16},attic:{chars:['✦','·'],n:7},
-      basement:{chars:['·','✦'],n:5},
-    };
+    const cfg={garden:{chars:['✦','·','✧','❀'],n:12},library:{chars:['✦','·','✧'],n:7},
+      ballroom:{chars:['✦','✧','·','⋆'],n:14},attic:{chars:['✦','·'],n:6},basement:{chars:['·','✦'],n:4}};
     const c=cfg[sceneKey]||cfg.garden;
-    return Array.from({length:c.n},(_,i)=>({
-      id:i,ch:c.chars[i%c.chars.length],
-      x:Math.random()*100,y:Math.random()*100,
-      sz:5+Math.random()*10,dl:Math.random()*4,
-      dur:3+Math.random()*5,op:.1+Math.random()*0.25,
-    }));
+    return Array.from({length:c.n},(_,i)=>({id:i,ch:c.chars[i%c.chars.length],
+      x:Math.random()*100,y:Math.random()*100,sz:5+Math.random()*10,
+      dl:Math.random()*4,dur:3+Math.random()*5,op:.1+Math.random()*.2}));
   },[sceneKey]);
   return <div style={{position:'absolute',inset:0,pointerEvents:'none',overflow:'hidden'}}>
-    {ps.map(p=><span key={p.id} style={{
-      position:'absolute',left:p.x+'%',top:p.y+'%',
-      fontSize:p.sz,opacity:p.op,color:accent,
-      animation:`float ${p.dur}s ${p.dl}s infinite ease-in-out`,
-    }}>{p.ch}</span>)}
+    {ps.map(p=><span key={p.id} style={{position:'absolute',left:p.x+'%',top:p.y+'%',
+      fontSize:p.sz,opacity:p.op,color:accent,animation:`float ${p.dur}s ${p.dl}s infinite ease-in-out`}}>{p.ch}</span>)}
   </div>;
 }
 
-// ── Affection Bar ──
 function AffectionBar({value,accent}){
   const label=value<20?'初识':value<40?'好奇':value<60?'信赖':value<80?'心动':'眷恋';
   return <div style={{display:'flex',alignItems:'center',gap:6}}>
@@ -352,138 +290,104 @@ function AffectionBar({value,accent}){
   </div>;
 }
 
-// ── Audio Button ──
-function AudioBtn({text,accent}){
-  const[st,setSt]=useState('idle');
-  const ref=useRef(null);
-  const play=async()=>{
-    if(st==='loading')return;
-    if(st==='playing'&&ref.current){ref.current.pause();ref.current=null;setSt('idle');return}
-    setSt('loading');
-    try{
-      const blob=await api.tts(text);
-      const url=URL.createObjectURL(blob);
-      const a=new Audio(url);ref.current=a;
-      a.onended=()=>{setSt('idle');URL.revokeObjectURL(url)};
-      a.onerror=()=>{setSt('idle');URL.revokeObjectURL(url)};
-      await a.play();setSt('playing');
-    }catch(e){console.error(e);setSt('idle')}
-  };
-  useEffect(()=>()=>{ref.current?.pause()},[]);
-  return <button onClick={play} style={{
-    background:st==='playing'?accent+'22':'rgba(255,255,255,.05)',
-    border:'1px solid '+accent+'33',borderRadius:12,padding:'4px 10px',
-    fontSize:11,color:accent,cursor:'pointer',transition:'all .2s',
-    fontFamily:'inherit',
-  }}>
-    {st==='loading'?'⏳ 生成…':st==='playing'?'⏹ 播放中':'🔊 语音'}
-  </button>;
-}
-
-// ── Opening Splash Screen ──
+/* ── Opening ── */
 function OpeningScreen({onEnter}){
-  const[phase,setPhase]=useState(0); // 0=black, 1=title, 2=subtitle, 3=prompt
+  const[phase,setPhase]=useState(0);
   useEffect(()=>{
     const t1=setTimeout(()=>setPhase(1),400);
     const t2=setTimeout(()=>setPhase(2),1800);
     const t3=setTimeout(()=>setPhase(3),3200);
     return()=>{clearTimeout(t1);clearTimeout(t2);clearTimeout(t3)};
   },[]);
-
   return <div onClick={phase>=2?onEnter:undefined} style={{
     position:'fixed',inset:0,zIndex:100,
     background:'radial-gradient(ellipse at 50% 40%,#12102a 0%,#07060e 70%)',
     display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
-    cursor:phase>=2?'pointer':'default',
-    fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",
+    cursor:phase>=2?'pointer':'default',fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",
   }}>
     <Stars count={60}/>
-    
-    {/* Moon glow */}
-    <div style={{
-      position:'absolute',top:'18%',
-      width:120,height:120,borderRadius:'50%',
-      background:'radial-gradient(circle,rgba(200,180,255,.15) 0%,transparent 70%)',
-      animation:'breathe 4s infinite ease-in-out',
-    }}/>
-    
-    {phase>=1&&<h1 style={{
-      fontSize:36,fontWeight:300,letterSpacing:12,color:'#e8e0ff',
-      animation:'fadeIn 1.5s ease-out both',
-      textShadow:'0 0 40px rgba(168,130,255,.3)',
-      position:'relative',zIndex:2,
-    }}>月光别墅</h1>}
-    
-    {phase>=2&&<div style={{
-      marginTop:16,fontSize:14,letterSpacing:6,color:'#8a80a0',fontWeight:300,
-      fontStyle:'italic',animation:'fadeIn 1.2s ease-out both',
-      position:'relative',zIndex:2,
-    }}>Moonlight Villa</div>}
-    
-    {phase>=2&&<div style={{
-      marginTop:40,maxWidth:300,textAlign:'center',
-      fontSize:13,lineHeight:2,color:'#7a7090',
-      animation:'fadeIn 1.5s .3s ease-out both',
-      position:'relative',zIndex:2,fontFamily:'Noto Serif SC,serif',
-    }}>
-      迷雾深处，月光永驻的古老别墅中<br/>
-      有人已等待了很久很久……
-    </div>}
-    
-    {phase>=3&&<button onClick={onEnter} style={{
-      marginTop:48,padding:'12px 36px',
-      background:'transparent',
-      border:'1px solid rgba(168,130,255,.3)',
-      borderRadius:24,color:'#b8a8d8',
-      fontSize:13,letterSpacing:4,cursor:'pointer',
-      animation:'fadeIn 1s ease-out both, breathe 3s 1s infinite',
-      fontFamily:'Noto Serif SC,serif',
-      position:'relative',zIndex:2,
-      transition:'all .3s',
-    }} onMouseEnter={e=>e.target.style.borderColor='rgba(168,130,255,.6)'}
-       onMouseLeave={e=>e.target.style.borderColor='rgba(168,130,255,.3)'}>
-      推开门扉
-    </button>}
+    <div style={{position:'absolute',top:'18%',width:120,height:120,borderRadius:'50%',
+      background:'radial-gradient(circle,rgba(200,180,255,.15) 0%,transparent 70%)',animation:'breathe 4s infinite ease-in-out'}}/>
+    {phase>=1&&<h1 style={{fontSize:36,fontWeight:300,letterSpacing:12,color:'#e8e0ff',
+      animation:'fadeIn 1.5s ease-out both',textShadow:'0 0 40px rgba(168,130,255,.3)',position:'relative',zIndex:2}}>月光罅隙</h1>}
+    {phase>=2&&<div style={{marginTop:16,fontSize:14,letterSpacing:6,color:'#8a80a0',fontWeight:300,
+      fontStyle:'italic',animation:'fadeIn 1.2s ease-out both',position:'relative',zIndex:2}}>Moonlight Rift</div>}
+    {phase>=2&&<div style={{marginTop:40,maxWidth:300,textAlign:'center',fontSize:13,lineHeight:2,color:'#7a7090',
+      animation:'fadeIn 1.5s .3s ease-out both',position:'relative',zIndex:2,fontFamily:'Noto Serif SC,serif'}}>
+      时空的罅隙中，月光永驻<br/>有人已等待了很久很久……</div>}
+    {phase>=3&&<button onClick={onEnter} style={{marginTop:48,padding:'12px 36px',background:'transparent',
+      border:'1px solid rgba(168,130,255,.3)',borderRadius:24,color:'#b8a8d8',fontSize:13,letterSpacing:4,cursor:'pointer',
+      animation:'fadeIn 1s ease-out both, breathe 3s 1s infinite',fontFamily:'Noto Serif SC,serif',position:'relative',zIndex:2,
+      transition:'all .3s'}}>推开门扉</button>}
   </div>;
 }
 
-// ── Settings / Save-Load Panel ──
-function SettingsPanel({show,onClose,accent,sessionId,bgmVol,onBgmVol,textSpeed,onTextSpeed}){
-  const[saving,setSaving]=useState(false);
-  const[msg,setMsg]=useState('');
-  
-  const doSave=async(slot)=>{
-    setSaving(true);setMsg('');
-    try{await api.save(sessionId,slot);setMsg('✓ 存档成功')}
-    catch(e){setMsg('✕ '+e.message)}
-    finally{setSaving(false)}
-  };
-  
-  if(!show)return null;
-  return <div style={{
-    position:'absolute',inset:0,zIndex:50,
-    background:'rgba(7,6,14,.92)',backdropFilter:'blur(24px)',
-    display:'flex',flexDirection:'column',
-    animation:'fadeIn .3s ease-out',
+/* ── Random Event Toast ── */
+function EventToast({event,accent,onDismiss}){
+  if(!event)return null;
+  return <div onClick={onDismiss} style={{
+    position:'absolute',top:0,left:0,right:0,bottom:0,zIndex:30,
+    background:'rgba(7,6,14,.7)',backdropFilter:'blur(8px)',
+    display:'flex',alignItems:'center',justifyContent:'center',
+    cursor:'pointer',animation:'fadeIn .4s ease-out',padding:20,
   }}>
+    <div style={{
+      maxWidth:360,background:'rgba(15,12,28,.9)',backdropFilter:'blur(24px)',
+      borderRadius:20,border:`1px solid ${accent}30`,padding:'24px 28px',
+      animation:'eventSlide .5s cubic-bezier(.23,1,.32,1) both',
+      boxShadow:`0 16px 48px rgba(0,0,0,.5), 0 0 40px ${accent}10`,
+    }}>
+      <div style={{fontSize:11,color:accent,letterSpacing:2,marginBottom:12,opacity:.7}}>
+        ✦ 该隐的低语
+      </div>
+      <div style={{fontSize:13.5,lineHeight:2,color:'#e4daf0',letterSpacing:.3}}>
+        {event.text.split(/([（(][^）)]+[）)])/).map((part,i)=>
+          /^[（(]/.test(part)?
+            <span key={i} style={{color:accent+'cc',fontStyle:'italic',fontSize:12.5}}>{part}</span>
+            :<span key={i}>{part}</span>
+        )}
+      </div>
+      <div style={{fontSize:10,opacity:.3,marginTop:14,textAlign:'center'}}>点击任意处继续</div>
+    </div>
+  </div>;
+}
+
+/* ── Settings Panel ── */
+function SettingsPanel({show,onClose,accent,sessionId,bgmVol,onBgmVol,textSpeed,onTextSpeed,autoVoice,onAutoVoice}){
+  const[saving,setSaving]=useState(false);const[msg,setMsg]=useState('');
+  const doSave=async(slot)=>{setSaving(true);setMsg('');
+    try{await api.save(sessionId,slot);setMsg('✓ 存档成功')}catch(e){setMsg('✕ '+e.message)}finally{setSaving(false)}};
+  if(!show)return null;
+  return <div style={{position:'absolute',inset:0,zIndex:50,background:'rgba(7,6,14,.92)',backdropFilter:'blur(24px)',
+    display:'flex',flexDirection:'column',animation:'fadeIn .3s ease-out'}}>
     <div style={{padding:'20px 20px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
       <span style={{fontSize:16,fontWeight:500,letterSpacing:3}}>设 置</span>
-      <button onClick={onClose} style={{
-        background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',
-        borderRadius:10,padding:'4px 12px',color:'#a098b0',fontSize:12,cursor:'pointer',fontFamily:'inherit',
-      }}>✕ 关闭</button>
+      <button onClick={onClose} style={{background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',
+        borderRadius:10,padding:'4px 12px',color:'#a098b0',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>✕ 关闭</button>
     </div>
-    
     <div style={{flex:1,overflow:'auto',padding:'8px 20px 20px'}} className="hide-scroll">
-      {/* BGM Volume */}
+      {/* Auto voice */}
       <div style={{marginBottom:24}}>
-        <div style={{fontSize:12,color:'#8a80a0',marginBottom:10,letterSpacing:1}}>🎵 背景音量</div>
+        <div style={{fontSize:12,color:'#8a80a0',marginBottom:10,letterSpacing:1}}>🔊 自动语音</div>
+        <div style={{display:'flex',gap:8}}>
+          {[{l:'开启',v:true},{l:'关闭',v:false}].map(o=>
+            <button key={String(o.v)} onClick={()=>onAutoVoice(o.v)} style={{
+              flex:1,padding:'8px 0',borderRadius:10,fontSize:12,cursor:'pointer',fontFamily:'inherit',
+              background:autoVoice===o.v?accent+'22':'rgba(255,255,255,.04)',
+              border:`1px solid ${autoVoice===o.v?accent+'55':'rgba(255,255,255,.08)'}`,
+              color:autoVoice===o.v?accent:'#8a80a0',transition:'all .2s',
+            }}>{o.l}</button>
+          )}
+        </div>
+        <div style={{fontSize:10,opacity:.35,marginTop:6}}>开启后该隐的回复会自动播放语音</div>
+      </div>
+      {/* BGM */}
+      <div style={{marginBottom:24}}>
+        <div style={{fontSize:12,color:'#8a80a0',marginBottom:10,letterSpacing:1}}>🎵 背景音乐</div>
         <input type="range" min="0" max="100" value={bgmVol}
-          onChange={e=>onBgmVol(+e.target.value)}
-          style={{width:'100%',accentColor:accent,height:4}}/>
+          onChange={e=>onBgmVol(+e.target.value)} style={{width:'100%',accentColor:accent,height:4}}/>
         <div style={{fontSize:11,opacity:.4,marginTop:4}}>{bgmVol}%</div>
       </div>
-      
       {/* Text Speed */}
       <div style={{marginBottom:24}}>
         <div style={{fontSize:12,color:'#8a80a0',marginBottom:10,letterSpacing:1}}>✏️ 文字速度</div>
@@ -498,8 +402,7 @@ function SettingsPanel({show,onClose,accent,sessionId,bgmVol,onBgmVol,textSpeed,
           )}
         </div>
       </div>
-      
-      {/* Save Slots */}
+      {/* Save */}
       <div style={{marginBottom:16}}>
         <div style={{fontSize:12,color:'#8a80a0',marginBottom:10,letterSpacing:1}}>💾 存档</div>
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
@@ -508,9 +411,7 @@ function SettingsPanel({show,onClose,accent,sessionId,bgmVol,onBgmVol,textSpeed,
               padding:'12px 16px',borderRadius:12,fontSize:12,cursor:'pointer',fontFamily:'inherit',
               background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',
               color:'#c0b8d0',textAlign:'left',transition:'all .2s',
-            }}>
-              {saving?'保存中…':`存档位 ${i+1}`}
-            </button>
+            }}>{saving?'保存中…':`存档位 ${i+1}`}</button>
           )}
         </div>
         {msg&&<div style={{fontSize:11,marginTop:8,color:msg.startsWith('✓')?'#88ff88':'#ff8888'}}>{msg}</div>}
@@ -519,42 +420,30 @@ function SettingsPanel({show,onClose,accent,sessionId,bgmVol,onBgmVol,textSpeed,
   </div>;
 }
 
-// ── Chat History Panel ──
+/* ── History Panel ── */
 function HistoryPanel({show,onClose,messages,accent}){
   const endRef=useRef(null);
-  useEffect(()=>{if(show)endRef.current?.scrollIntoView({behavior:'smooth'})},[show,messages.length]);
-  
+  useEffect(()=>{if(show)setTimeout(()=>endRef.current?.scrollIntoView({behavior:'smooth'}),100)},[show,messages.length]);
   if(!show)return null;
-  return <div style={{
-    position:'absolute',inset:0,zIndex:40,
-    background:'rgba(7,6,14,.94)',backdropFilter:'blur(24px)',
-    display:'flex',flexDirection:'column',
-    animation:'fadeIn .3s ease-out',
-  }}>
+  return <div style={{position:'absolute',inset:0,zIndex:40,background:'rgba(7,6,14,.94)',backdropFilter:'blur(24px)',
+    display:'flex',flexDirection:'column',animation:'fadeIn .3s ease-out'}}>
     <div style={{padding:'20px 20px 12px',display:'flex',justifyContent:'space-between',alignItems:'center',
       borderBottom:'1px solid rgba(255,255,255,.06)'}}>
       <span style={{fontSize:14,letterSpacing:2}}>📜 对话记录</span>
-      <button onClick={onClose} style={{
-        background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',
-        borderRadius:10,padding:'4px 12px',color:'#a098b0',fontSize:12,cursor:'pointer',fontFamily:'inherit',
-      }}>✕</button>
+      <button onClick={onClose} style={{background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',
+        borderRadius:10,padding:'4px 12px',color:'#a098b0',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>✕</button>
     </div>
     <div style={{flex:1,overflow:'auto',padding:16}} className="hide-scroll">
-      {messages.length===0?
-        <div style={{textAlign:'center',opacity:.3,marginTop:50,fontSize:13}}>还没有对话…</div>
+      {messages.length===0?<div style={{textAlign:'center',opacity:.3,marginTop:50,fontSize:13}}>还没有对话…</div>
       :messages.map((m,i)=>
         <div key={i} style={{marginBottom:12,textAlign:m.role==='user'?'right':'left'}}>
-          {m.role==='system'?
-            <div style={{textAlign:'center',fontSize:11,opacity:.35,fontStyle:'italic',padding:'4px 0'}}>{m.text}</div>
-          :<div style={{
-            display:'inline-block',maxWidth:'82%',padding:'10px 14px',borderRadius:14,
+          {m.role==='system'?<div style={{textAlign:'center',fontSize:11,opacity:.35,fontStyle:'italic',padding:'4px 0'}}>{m.text}</div>
+          :<div style={{display:'inline-block',maxWidth:'82%',padding:'10px 14px',borderRadius:14,
             fontSize:12.5,lineHeight:1.7,
             background:m.role==='user'?accent+'18':'rgba(255,255,255,.05)',
             border:`1px solid ${m.role==='user'?accent+'30':'rgba(255,255,255,.06)'}`,
           }}>
-            <div style={{fontSize:10,opacity:.45,marginBottom:4}}>
-              {m.role==='user'?'你':`Cain${m.emotion?' · '+(EMOTION_MAP[m.emotion]||m.emotion):''}`}
-            </div>
+            <div style={{fontSize:10,opacity:.45,marginBottom:4}}>{m.role==='user'?'你':'Cain'}</div>
             {m.text}
           </div>}
         </div>
@@ -569,9 +458,7 @@ function HistoryPanel({show,onClose,messages,accent}){
    ============================================================ */
 function App(){
   const r=useResponsive();
-  
-  // Game state
-  const[phase,setPhase]=useState('opening'); // opening | game
+  const[phase,setPhase]=useState('opening');
   const[sid,setSid]=useState(null);
   const[scene,setScene]=useState('garden');
   const[aff,setAff]=useState(15);
@@ -582,125 +469,171 @@ function App(){
   const[latestReply,setLatestReply]=useState('');
   const[error,setError]=useState(null);
   const[ready,setReady]=useState(false);
-  
-  // UI state
   const[inputFocused,setInputFocused]=useState(false);
   const[showHistory,setShowHistory]=useState(false);
   const[showSettings,setShowSettings]=useState(false);
-  const[sceneKey,setSceneKey]=useState(0); // for transition animation
+  const[sceneKey,setSceneKey]=useState(0);
   const[bgmVol,setBgmVol]=useState(30);
   const[textSpeed,setTextSpeed]=useState(30);
+  const[autoVoice,setAutoVoice]=useState(true);
+  const[randomEvent,setRandomEvent]=useState(null);
+  const[voiceState,setVoiceState]=useState('idle'); // idle|loading|playing
   
   const inputRef=useRef(null);
-  const ambientRef=useRef(null);
-  
+  const musicRef=useRef(null);
+  const voiceRef=useRef(null); // current Audio for TTS
+  const eventTimerRef=useRef(null);
+
   const sc=SCENES[scene];
   const mood=MOOD_FX[emotion]||MOOD_FX.neutral;
   const tw=useTypewriter(latestReply,textSpeed);
   const hidePortrait=inputFocused&&r.short;
-  
+
   // Init session
   useEffect(()=>{
-    api.createSession().then(d=>{setSid(d.session_id);setAff(d.affection);setReady(true)})
-      .catch(e=>setError('无法连接服务器'));
+    api.createSession().then(d=>{setSid(d.session_id);setAff(d.affection);setReady(true)}).catch(()=>setError('无法连接服务器'));
   },[]);
-  
-  // Init ambient engine
+
+  // Init music engine
   useEffect(()=>{
-    ambientRef.current=new AmbientEngine();
-    return()=>ambientRef.current?.destroy();
+    musicRef.current=new MusicEngine();
+    return()=>musicRef.current?.destroy();
   },[]);
-  
-  // Scene change -> update ambient
+
+  // Page visibility — pause/resume audio
   useEffect(()=>{
-    if(phase==='game'&&ambientRef.current?.ctx){
-      ambientRef.current.playScene(scene);
-    }
-  },[scene,phase]);
-  
-  // Volume change
+    const handler=()=>{
+      if(document.hidden){
+        musicRef.current?.pause();
+        if(voiceRef.current){voiceRef.current.pause()}
+      }else{
+        musicRef.current?.resume();
+      }
+    };
+    document.addEventListener('visibilitychange',handler);
+    return()=>document.removeEventListener('visibilitychange',handler);
+  },[]);
+
+  // Scene -> music
+  useEffect(()=>{if(phase==='game'&&musicRef.current?.ctx)musicRef.current.playScene(scene)},[scene,phase]);
+  // Volume
+  useEffect(()=>{musicRef.current?.setVolume(bgmVol/100*.3)},[bgmVol]);
+
+  // Random event timer: every 45-90s Cain says something
   useEffect(()=>{
-    ambientRef.current?.setVolume(bgmVol/100*.4);
-  },[bgmVol]);
-  
+    if(phase!=='game'||!sid)return;
+    const scheduleNext=()=>{
+      const delay=45000+Math.random()*45000; // 45-90s
+      eventTimerRef.current=setTimeout(async()=>{
+        if(loading||showSettings||showHistory||randomEvent)return scheduleNext();
+        try{
+          const d=await api.randomEvent(sid);
+          setRandomEvent(d);
+          setEmotion(d.emotion||'neutral');
+          setMsgs(p=>[...p,{role:'ai',text:d.text,emotion:d.emotion}]);
+          // Auto TTS for random event
+          if(autoVoice&&d.tts_text){
+            try{
+              const blob=await api.ttsBlob(d.tts_text);
+              const url=URL.createObjectURL(blob);
+              const a=new Audio(url);
+              a.onended=()=>URL.revokeObjectURL(url);
+              a.play().catch(()=>{});
+            }catch(e){}
+          }
+        }catch(e){console.error('Random event error:',e)}
+        scheduleNext();
+      },delay);
+    };
+    scheduleNext();
+    return()=>clearTimeout(eventTimerRef.current);
+  },[phase,sid,loading,autoVoice]);
+
   // Enter game
   const enterGame=()=>{
     setPhase('game');
-    // Start audio context (needs user gesture)
-    const ae=ambientRef.current;
-    ae.init();
-    ae.setVolume(bgmVol/100*.4);
-    ae.playScene(scene);
+    const me=musicRef.current;me.init();me.setVolume(bgmVol/100*.3);me.playScene(scene);
   };
-  
+
+  // Play TTS
+  const playTTS=useCallback(async(ttsText)=>{
+    if(!ttsText||voiceState==='loading')return;
+    // Stop any current playback
+    if(voiceRef.current){voiceRef.current.pause();voiceRef.current=null}
+    setVoiceState('loading');
+    try{
+      const blob=await api.ttsBlob(ttsText);
+      const url=URL.createObjectURL(blob);
+      const audio=new Audio(url);
+      voiceRef.current=audio;
+      audio.onended=()=>{setVoiceState('idle');URL.revokeObjectURL(url);voiceRef.current=null};
+      audio.onerror=()=>{setVoiceState('idle');URL.revokeObjectURL(url);voiceRef.current=null};
+      await audio.play();
+      setVoiceState('playing');
+    }catch(e){console.error('TTS error:',e);setVoiceState('idle')}
+  },[voiceState]);
+
+  // Stop TTS
+  const stopTTS=useCallback(()=>{
+    if(voiceRef.current){voiceRef.current.pause();voiceRef.current=null}
+    setVoiceState('idle');
+  },[]);
+
   // Send message
   const send=async()=>{
-    const msg=input.trim();
-    if(!msg||loading||!sid)return;
+    const msg=input.trim();if(!msg||loading||!sid)return;
     setInput('');setError(null);
     setMsgs(p=>[...p,{role:'user',text:msg}]);
     setLatestReply('');setLoading(true);
+    stopTTS();
     try{
       const d=await api.chat(sid,msg,scene);
       setMsgs(p=>[...p,{role:'ai',text:d.reply,emotion:d.emotion}]);
       setLatestReply(d.reply);
       setEmotion(d.emotion||'neutral');
       setAff(d.affection||aff);
+      // Auto TTS — start immediately in parallel with typewriter
+      if(autoVoice&&d.tts_text){
+        playTTS(d.tts_text);
+      }
     }catch(e){
       setError(e.message);
       setMsgs(p=>[...p,{role:'system',text:'⚠ '+e.message}]);
     }finally{setLoading(false)}
   };
-  
+
   // Switch scene
   const switchScene=async(key)=>{
     if(key===scene||!sid)return;
-    setScene(key);
-    setSceneKey(k=>k+1);
-    try{
-      const d=await api.changeScene(sid,key);
+    setScene(key);setSceneKey(k=>k+1);
+    try{const d=await api.changeScene(sid,key);
       setMsgs(p=>[...p,{role:'system',text:`── ${d.scene_name} ──`}]);
-    }catch(e){console.error(e)}
+    }catch(e){}
   };
 
-  // ── OPENING ──
-  if(phase==='opening'){
-    return <OpeningScreen onEnter={enterGame}/>;
-  }
-  
-  // ── GAME ──
+  if(phase==='opening')return <OpeningScreen onEnter={enterGame}/>;
+
   return <div style={{
-    height:'100dvh',maxWidth:480,margin:'0 auto',
-    display:'flex',flexDirection:'column',
+    height:'100dvh',maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column',
     background:sc.grad,position:'relative',overflow:'hidden',
     filter:mood.filter,transition:'filter 1.2s ease',
-    paddingTop:'env(safe-area-inset-top)',
-    paddingBottom:'env(safe-area-inset-bottom)',
+    paddingTop:'env(safe-area-inset-top)',paddingBottom:'env(safe-area-inset-bottom)',
   }}>
-    {/* Mood overlay */}
     <div style={{position:'absolute',inset:0,background:mood.overlay,pointerEvents:'none',transition:'background 1.2s',zIndex:1}}/>
-    
-    <Stars count={25}/>
-    <Particles sceneKey={scene} accent={sc.accent}/>
-    
-    {/* ── Content ── */}
-    <div key={sceneKey} className="scene-transition" style={{
-      position:'relative',zIndex:2,display:'flex',flexDirection:'column',flex:1,minHeight:0,
-    }}>
-      
+    <Stars count={25}/><Particles sceneKey={scene} accent={sc.accent}/>
+
+    {/* Random event overlay */}
+    <EventToast event={randomEvent} accent={sc.accent} onDismiss={()=>setRandomEvent(null)}/>
+
+    <div key={sceneKey} className="scene-transition" style={{position:'relative',zIndex:2,display:'flex',flexDirection:'column',flex:1,minHeight:0}}>
+
       {/* Header */}
       <div style={{padding:`${r.sm?10:14}px ${r.px}px 6px`,display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
         <div>
-          <h1 style={{
-            fontSize:r.tiny?16:r.sm?18:21,fontWeight:300,letterSpacing:4,
-            color:'#f0e8ff',
-            textShadow:`0 0 30px ${sc.accent}33`,
-            fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",
-          }}>月光别墅</h1>
-          <div style={{
-            fontSize:9,opacity:.35,letterSpacing:2,marginTop:2,
-            fontFamily:"'Cormorant Garamond',serif",fontStyle:'italic',
-          }}>MOONLIGHT VILLA</div>
+          <h1 style={{fontSize:r.tiny?16:r.sm?18:21,fontWeight:300,letterSpacing:4,color:'#f0e8ff',
+            textShadow:`0 0 30px ${sc.accent}33`,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>月光罅隙</h1>
+          <div style={{fontSize:9,opacity:.35,letterSpacing:2,marginTop:2,
+            fontFamily:"'Cormorant Garamond',serif",fontStyle:'italic'}}>MOONLIGHT RIFT</div>
         </div>
         <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}}>
           <AffectionBar value={aff} accent={sc.accent}/>
@@ -709,194 +642,144 @@ function App(){
               background:showSettings?sc.accent+'18':'transparent',
               border:'1px solid '+(showSettings?sc.accent+'44':'rgba(255,255,255,.1)'),
               borderRadius:8,padding:'3px 8px',fontSize:10,
-              color:showSettings?sc.accent:'#8a80a0',cursor:'pointer',fontFamily:'inherit',
-            }}>⚙</button>
+              color:showSettings?sc.accent:'#8a80a0',cursor:'pointer',fontFamily:'inherit'}}>⚙</button>
             <button onClick={()=>{setShowSettings(false);setShowHistory(!showHistory)}} style={{
               background:showHistory?sc.accent+'18':'transparent',
               border:'1px solid '+(showHistory?sc.accent+'44':'rgba(255,255,255,.1)'),
               borderRadius:8,padding:'3px 8px',fontSize:10,
-              color:showHistory?sc.accent:'#8a80a0',cursor:'pointer',fontFamily:'inherit',
-            }}>📜</button>
+              color:showHistory?sc.accent:'#8a80a0',cursor:'pointer',fontFamily:'inherit'}}>📜</button>
           </div>
         </div>
       </div>
-      
+
       {/* Scene Selector */}
-      <div className="hide-scroll" style={{
-        display:'flex',gap:6,padding:`2px ${r.px}px 8px`,
-        overflowX:'auto',WebkitOverflowScrolling:'touch',
-      }}>
-        {Object.entries(SCENES).map(([k,s])=>{
-          const active=scene===k;
+      <div className="hide-scroll" style={{display:'flex',gap:6,padding:`2px ${r.px}px 8px`,overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+        {Object.entries(SCENES).map(([k,s])=>{const active=scene===k;
           return <button key={k} onClick={()=>switchScene(k)} style={{
-            flexShrink:0,whiteSpace:'nowrap',padding:'5px 11px',
-            borderRadius:14,fontSize:11,minHeight:34,cursor:'pointer',
+            flexShrink:0,whiteSpace:'nowrap',padding:'5px 11px',borderRadius:14,fontSize:11,minHeight:34,cursor:'pointer',
             fontFamily:'inherit',transition:'all .35s cubic-bezier(.4,0,.2,1)',
             border:`1px solid ${active?s.accent+'66':'rgba(255,255,255,.06)'}`,
             background:active?s.accent+'15':'rgba(255,255,255,.03)',
-            color:active?s.accent:'#706880',
-            boxShadow:active?`0 0 12px ${s.accent}15`:'none',
-          }}>{s.icon} {s.name}</button>;
-        })}
+            color:active?s.accent:'#706880',boxShadow:active?`0 0 12px ${s.accent}15`:'none',
+          }}>{s.icon} {s.name}</button>})}
       </div>
-      
+
       {/* Panels */}
       <HistoryPanel show={showHistory} onClose={()=>setShowHistory(false)} messages={msgs} accent={sc.accent}/>
       <SettingsPanel show={showSettings} onClose={()=>setShowSettings(false)} accent={sc.accent}
-        sessionId={sid} bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed}/>
-      
+        sessionId={sid} bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed}
+        autoVoice={autoVoice} onAutoVoice={setAutoVoice}/>
+
       {/* Portrait + Dialogue */}
       <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'center',padding:`0 ${r.px}px`,minHeight:0}}>
-        
-        {/* Portrait */}
-        {!hidePortrait&&<div style={{
-          display:'flex',justifyContent:'center',alignItems:'center',
-          minHeight:r.short?140:r.sm?160:210,
-          transition:'min-height .4s',
-        }}>
+
+        {!hidePortrait&&<div style={{display:'flex',justifyContent:'center',alignItems:'center',
+          minHeight:r.short?140:r.sm?160:210,transition:'min-height .4s'}}>
           <div style={{position:'relative'}}>
-            {/* Outer glow */}
-            <div style={{
-              position:'absolute',inset:-20,borderRadius:'50%',
+            <div style={{position:'absolute',inset:-20,borderRadius:'50%',
               background:`radial-gradient(circle,${sc.accent}12 0%,transparent 70%)`,
-              animation:'breathe 4s infinite ease-in-out',
-              transition:'background 1s',
-            }}/>
-            
-            {/* Portrait circle */}
-            <div style={{
-              width:r.portrait,height:r.portrait,borderRadius:'50%',
-              overflow:'hidden',position:'relative',
+              animation:'breathe 4s infinite ease-in-out',transition:'background 1s'}}/>
+            <div style={{width:r.portrait,height:r.portrait,borderRadius:'50%',overflow:'hidden',position:'relative',
               border:`2px solid ${sc.accent}33`,
               boxShadow:`0 0 40px ${sc.accent}18, 0 0 80px ${sc.accent}08, inset 0 0 30px rgba(0,0,0,.4)`,
-              transition:'all .5s',
-            }}>
+              transition:'all .5s'}}>
               <img src="/static/cain.jpg" alt="Cain" style={{
                 width:'135%',height:'135%',objectFit:'cover',objectPosition:'50% 18%',
                 position:'absolute',top:'-5%',left:'-17%',
                 filter:emotion==='shy'?'saturate(1.1) brightness(1.05)':
                        emotion==='sad'?'saturate(.75) brightness(.88)':
-                       emotion==='cold'?'saturate(.65) contrast(1.1)':
-                       emotion==='vulnerable'?'saturate(.85) brightness(.92)':'none',
-                transition:'filter 1s ease',
-              }}/>
+                       emotion==='cold'?'saturate(.65) contrast(1.1)':'none',
+                transition:'filter 1s ease'}}/>
             </div>
-            
-            {/* Name + emotion tag */}
-            <div style={{
-              position:'absolute',bottom:-10,left:'50%',transform:'translateX(-50%)',
+            <div style={{position:'absolute',bottom:-10,left:'50%',transform:'translateX(-50%)',
               background:'rgba(7,6,14,.85)',backdropFilter:'blur(12px)',
-              padding:'3px 14px',borderRadius:12,
-              fontSize:11,letterSpacing:2,whiteSpace:'nowrap',
+              padding:'3px 14px',borderRadius:12,fontSize:11,letterSpacing:2,whiteSpace:'nowrap',
               border:`1px solid ${sc.accent}28`,color:sc.accent,
-              fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",
-            }}>
+              fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>
               Cain · {EMOTION_MAP[emotion]||'平静'}
             </div>
           </div>
         </div>}
-        
-        {/* Dialogue Box */}
+
+        {/* Dialogue */}
         <div style={{
-          marginTop:hidePortrait?0:18,
-          background:'rgba(12,11,20,.65)',
-          backdropFilter:'blur(24px)',
-          borderRadius:18,
-          border:`1px solid ${sc.accent}18`,
-          padding:r.sm?'14px 16px':'18px 22px',
-          minHeight:r.short?80:100,
-          position:'relative',
-          flex:hidePortrait?1:'none',
-          overflow:hidePortrait?'auto':'visible',
+          marginTop:hidePortrait?0:18,background:'rgba(12,11,20,.65)',backdropFilter:'blur(24px)',
+          borderRadius:18,border:`1px solid ${sc.accent}18`,
+          padding:r.sm?'14px 16px':'18px 22px',minHeight:r.short?80:100,
+          position:'relative',flex:hidePortrait?1:'none',overflow:hidePortrait?'auto':'visible',
           boxShadow:`inset 0 1px 0 rgba(255,255,255,.04), 0 8px 32px rgba(0,0,0,.3)`,
         }}>
-          {/* Decorative corner */}
           <div style={{position:'absolute',top:8,left:12,fontSize:8,opacity:.15,color:sc.accent}}>✦</div>
           <div style={{position:'absolute',bottom:8,right:12,fontSize:8,opacity:.15,color:sc.accent}}>✦</div>
-          
-          {/* Mini portrait when keyboard open */}
-          {hidePortrait&&<div style={{
-            width:30,height:30,borderRadius:'50%',overflow:'hidden',
-            border:`1px solid ${sc.accent}33`,float:'left',marginRight:10,marginTop:2,
-          }}>
-            <img src="/static/cain.jpg" alt="" style={{
-              width:'135%',height:'135%',objectFit:'cover',objectPosition:'50% 18%',
-              position:'relative',top:'-5%',left:'-17%',
-            }}/>
+
+          {hidePortrait&&<div style={{width:30,height:30,borderRadius:'50%',overflow:'hidden',
+            border:`1px solid ${sc.accent}33`,float:'left',marginRight:10,marginTop:2}}>
+            <img src="/static/cain.jpg" alt="" style={{width:'135%',height:'135%',objectFit:'cover',
+              objectPosition:'50% 18%',position:'relative',top:'-5%',left:'-17%'}}/>
           </div>}
-          
-          {/* Error */}
-          {error&&!loading&&msgs.length===0&&
-            <div style={{color:'#ff7070',fontSize:12,textAlign:'center',padding:12}}>⚠ {error}</div>}
-          
-          {/* Loading */}
+
+          {error&&!loading&&msgs.length===0&&<div style={{color:'#ff7070',fontSize:12,textAlign:'center',padding:12}}>⚠ {error}</div>}
+
           {loading&&<div style={{fontSize:r.fs,lineHeight:2,color:'#9088a0',fontStyle:'italic'}}>
-            <span style={{opacity:.5}}>Cain 正在思考</span>
-            <span className="loading-dots" style={{opacity:.5}}/>
-          </div>}
-          
-          {/* Typewriter */}
+            <span style={{opacity:.5}}>Cain 正在思考</span><span className="loading-dots" style={{opacity:.5}}/></div>}
+
           {!loading&&latestReply&&<div onClick={!tw.done?tw.skip:undefined} style={{cursor:!tw.done?'pointer':'default'}}>
             <div style={{fontSize:r.fs,lineHeight:2,color:'#e4daf0',letterSpacing:.3}}>
-              {/* Render action text in accent color */}
-              {tw.display.split(/(\*[^*]+\*)/).map((part,i)=>
-                part.startsWith('*')&&part.endsWith('*')?
-                  <span key={i} style={{color:sc.accent+'cc',fontStyle:'italic',fontSize:r.fs-1}}>{part.slice(1,-1)}</span>
+              {tw.display.split(/([（(][^）)]+[）)]|\*[^*]+\*)/).map((part,i)=>
+                (/^[（(*]/.test(part))?
+                  <span key={i} style={{color:sc.accent+'cc',fontStyle:'italic',fontSize:r.fs-1}}>{part.replace(/^\*|\*$/g,'')}</span>
                   :<span key={i}>{part}</span>
               )}
               {!tw.done&&<span className="cursor"/>}
             </div>
-            {tw.done&&<div className="fade-in" style={{display:'flex',gap:8,marginTop:10,justifyContent:'flex-end'}}>
-              <AudioBtn text={latestReply} accent={sc.accent}/>
+            {/* Voice indicator */}
+            {tw.done&&<div className="fade-in" style={{display:'flex',gap:8,marginTop:10,justifyContent:'flex-end',alignItems:'center'}}>
+              {voiceState==='playing'&&<span style={{fontSize:10,opacity:.5}}>🔊 播放中</span>}
+              {voiceState==='loading'&&<span style={{fontSize:10,opacity:.5}}>⏳ 语音生成中…</span>}
+              {voiceState==='idle'&&!autoVoice&&<button onClick={()=>{
+                const tts=msgs.filter(m=>m.role==='ai').pop();
+                if(tts)playTTS(tts.text);
+              }} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,
+                borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>
+                🔊 播放语音
+              </button>}
+              {voiceState==='playing'&&<button onClick={stopTTS} style={{background:'rgba(255,255,255,.05)',
+                border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',
+                fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>⏹ 停止</button>}
             </div>}
           </div>}
-          
-          {/* Welcome */}
+
           {!loading&&!latestReply&&msgs.length===0&&ready&&
             <div style={{fontSize:r.fs,lineHeight:2.2,color:'#7a7090',textAlign:'center',padding:'8px 0'}}>
               <div style={{fontSize:16,marginBottom:8,animation:'float 3s infinite ease-in-out',color:sc.accent+'88'}}>✦</div>
               <div style={{fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",fontSize:14,letterSpacing:1}}>
-                月光如水，别墅的主人正望向你……
-              </div>
+                月光如水，罅隙的主人正望向你……</div>
               <div style={{fontSize:11,opacity:.5,marginTop:6}}>试着和 Cain 说些什么吧</div>
             </div>}
-          
-          {/* Connecting */}
-          {!ready&&!error&&<div style={{fontSize:r.fs,color:'#7a7090',textAlign:'center'}}>
-            正在连接<span className="loading-dots"/>
-          </div>}
+
+          {!ready&&!error&&<div style={{fontSize:r.fs,color:'#7a7090',textAlign:'center'}}>正在连接<span className="loading-dots"/></div>}
         </div>
       </div>
-      
+
       {/* Input */}
       <div style={{padding:`8px ${r.px}px 10px`,paddingBottom:`calc(10px + env(safe-area-inset-bottom))`}}>
-        <div style={{
-          display:'flex',gap:8,alignItems:'center',
-          background:'rgba(12,11,20,.55)',backdropFilter:'blur(18px)',
-          borderRadius:22,
-          border:`1px solid ${inputFocused?sc.accent+'40':'rgba(255,255,255,.06)'}`,
-          padding:'6px 6px 6px 18px',
-          transition:'border-color .3s, box-shadow .3s',
-          boxShadow:inputFocused?`0 0 20px ${sc.accent}10`:'none',
-        }}>
+        <div style={{display:'flex',gap:8,alignItems:'center',background:'rgba(12,11,20,.55)',backdropFilter:'blur(18px)',
+          borderRadius:22,border:`1px solid ${inputFocused?sc.accent+'40':'rgba(255,255,255,.06)'}`,
+          padding:'6px 6px 6px 18px',transition:'border-color .3s, box-shadow .3s',
+          boxShadow:inputFocused?`0 0 20px ${sc.accent}10`:'none'}}>
           <input ref={inputRef} value={input}
             onChange={e=>setInput(e.target.value)}
             onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}}
-            onFocus={()=>setInputFocused(true)}
-            onBlur={()=>setInputFocused(false)}
+            onFocus={()=>setInputFocused(true)} onBlur={()=>setInputFocused(false)}
             placeholder={loading?'Cain 正在回应…':'对 Cain 说点什么…'}
             disabled={loading||!ready}
-            style={{
-              flex:1,background:'transparent',border:'none',outline:'none',
-              color:'#e8e0f0',fontSize:r.fs,fontFamily:'inherit',
-              lineHeight:1.4,
-            }}/>
+            style={{flex:1,background:'transparent',border:'none',outline:'none',
+              color:'#e8e0f0',fontSize:r.fs,fontFamily:'inherit',lineHeight:1.4}}/>
           <button onClick={send} disabled={loading||!input.trim()||!ready} style={{
             width:40,height:40,borderRadius:16,border:'none',
-            background:input.trim()&&!loading?
-              `linear-gradient(135deg,${sc.accent},${sc.accent}88)`:'rgba(255,255,255,.04)',
-            color:input.trim()&&!loading?'#fff':'#444',
-            fontSize:16,cursor:input.trim()&&!loading?'pointer':'default',
+            background:input.trim()&&!loading?`linear-gradient(135deg,${sc.accent},${sc.accent}88)`:'rgba(255,255,255,.04)',
+            color:input.trim()&&!loading?'#fff':'#444',fontSize:16,
+            cursor:input.trim()&&!loading?'pointer':'default',
             display:'flex',alignItems:'center',justifyContent:'center',
             transition:'all .3s',flexShrink:0,fontFamily:'inherit',
             boxShadow:input.trim()&&!loading?`0 4px 16px ${sc.accent}33`:'none',
