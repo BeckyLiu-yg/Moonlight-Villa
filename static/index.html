@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moonlight Villa</title>
+    <style>
+        /* --- 视觉风格：紫夜琉璃 --- */
+        :root {
+            --bg-color: #0E0B16;
+            --chat-bg-cain: #1A1A2E;
+            --chat-bg-user: #2A1B3D;
+            --text-color: #E6E6FA;
+            --accent-color: #AB47BC;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Georgia', serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        /* 顶部标题栏 */
+        .header {
+            padding: 15px;
+            text-align: center;
+            background: rgba(0,0,0,0.3);
+            border-bottom: 1px solid #4B0082;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        .title { color: #FFD700; text-shadow: 0 0 10px #7B1FA2; margin: 0; font-size: 1.5em; }
+        .subtitle { font-size: 0.8em; color: #AAA; margin-top: 5px; }
+
+        /* 聊天区域 */
+        #chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        /* 消息气泡 */
+        .message {
+            display: flex;
+            align-items: flex-start;
+            max-width: 85%;
+            animation: fadeIn 0.3s ease;
+        }
+        .message.cain { align-self: flex-start; }
+        .message.user { align-self: flex-end; flex-direction: row-reverse; }
+
+        .avatar {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            border: 2px solid #FFD700;
+            margin: 0 10px;
+            background-size: cover;
+            background-position: center;
+            background-color: #333; /* 图片加载失败时的底色 */
+        }
+        
+        .bubble {
+            padding: 12px 16px;
+            border-radius: 15px;
+            font-size: 16px;
+            line-height: 1.5;
+            position: relative;
+        }
+        .cain .bubble {
+            background-color: var(--chat-bg-cain);
+            border: 1px solid #E6E6FA;
+            border-top-left-radius: 2px;
+        }
+        .user .bubble {
+            background-color: var(--chat-bg-user);
+            border: 1px solid #AB47BC;
+            border-top-right-radius: 2px;
+        }
+
+        /* 底部输入区 */
+        .input-area {
+            padding: 20px;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        input {
+            flex: 1;
+            padding: 12px;
+            border-radius: 25px;
+            border: 2px solid #AB47BC;
+            background: #FFF;
+            color: #000;
+            font-size: 16px;
+            outline: none;
+        }
+        button {
+            padding: 10px 20px;
+            border-radius: 25px;
+            border: none;
+            background: #AB47BC;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        button:active { transform: scale(0.95); }
+
+        /* 状态指示器 */
+        .status-bar {
+            font-size: 12px;
+            color: #888;
+            padding: 0 20px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1 class="title">Moonlight Villa</h1>
+        <div class="subtitle" id="scene-name">Cain's Private Lounge</div>
+    </div>
+
+    <div id="chat-container">
+        <div class="message cain">
+            <div class="avatar" style="background-image: url('static/cain.png')"></div>
+            <div class="bubble">（从阴影中走出，月光石戒指微微闪烁）你终于来了，小猎物。</div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <span id="status-text">Connected</span>
+        <span>🔊 语音: <input type="checkbox" id="voice-toggle" checked></span>
+    </div>
+
+    <div class="input-area">
+        <input type="text" id="user-input" placeholder="在紫罗兰花丛中低语..." autocomplete="off">
+        <button onclick="sendMessage()">发送</button>
+    </div>
+
+    <script>
+        // --- 核心逻辑 ---
+        let sessionId = localStorage.getItem('cain_session_id');
+        if (!sessionId) {
+            sessionId = 'user_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('cain_session_id', sessionId);
+        }
+
+        const chatBox = document.getElementById('chat-container');
+        const inputField = document.getElementById('user-input');
+        const voiceToggle = document.getElementById('voice-toggle');
+        const sceneLabel = document.getElementById('scene-name');
+
+        // 回车发送
+        inputField.addEventListener("keypress", function(event) {
+            if (event.key === "Enter") sendMessage();
+        });
+
+        async function sendMessage() {
+            const text = inputField.value.trim();
+            if (!text) return;
+
+            // 1. 显示用户消息
+            addMessage('user', text);
+            inputField.value = '';
+
+            // 2. 发送给后端
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: text,
+                        session_id: sessionId
+                    })
+                });
+                
+                if (!response.ok) throw new Error('网络连接中断');
+                const data = await response.json();
+
+                // 3. 显示该隐回复
+                addMessage('cain', data.reply);
+                
+                // 4. 更新场景信息（如果后端返回了）
+                if (data.scene) {
+                    // 这里可以做一个映射把英文场景转中文，或者后端直接传中文
+                    // 暂时简单显示
+                    // sceneLabel.innerText = "当前场景: " + data.scene; 
+                }
+
+                // 5. 播放语音 (Fish Audio)
+                if (voiceToggle.checked) {
+                    playVoice(data.reply);
+                }
+
+            } catch (error) {
+                addMessage('cain', '（似乎有一阵迷雾干扰了信号...）' + error.message);
+            }
+        }
+
+        function addMessage(role, text) {
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            
+            // 头像路径：注意这里必须是 static/xxx.png
+            const avatarUrl = role === 'cain' ? 'static/cain.png' : 'static/becky.png';
+            
+            div.innerHTML = `
+                <div class="avatar" style="background-image: url('${avatarUrl}')"></div>
+                <div class="bubble">${text}</div>
+            `;
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight; // 自动滚动到底部
+        }
+
+        async function playVoice(text) {
+            try {
+                const res = await fetch('/api/tts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text })
+                });
+                if (res.ok) {
+                    const blob = await res.blob();
+                    const audio = new Audio(URL.createObjectURL(blob));
+                    audio.play();
+                }
+            } catch (e) {
+                console.error("语音播放失败", e);
+            }
+        }
+    </script>
+</body>
+</html>
