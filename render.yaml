@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: moonlight-villa
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app --bind 0.0.0.0:$PORT --timeout 60
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: FISH_AUDIO_API_KEY
+        sync: false
+      - key: FISH_VOICE_MODEL_ID
+        sync: false
+      - key: DEBUG
+        value: "0"
