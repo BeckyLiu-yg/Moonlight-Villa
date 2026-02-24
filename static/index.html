@@ -255,6 +255,8 @@ function App(){
   const stopTTS=useCallback(()=>{if(voiceRef.current){voiceRef.current.pause();voiceRef.current=null}setVoiceState('idle')},[]);
 
   const send=async()=>{const msg=input.trim();if(!msg||loading||!sid)return;
+    // If Cain isn't here, your voice draws him to this scene
+    if(!cainHere)summonCain(scene);
     setInput('');setError(null);setMsgs(p=>[...p,{role:'user',text:msg}]);setLatestReply('');setAudioDur(null);setLoading(true);stopTTS();
     try{
       const d=await api.chat(sid,msg,scene);
@@ -275,21 +277,15 @@ function App(){
   const switchScene=async(key)=>{if(key===scene||!sid)return;setScene(key);setSceneKey(k=>k+1);
     if(cainTimerRef.current){clearTimeout(cainTimerRef.current);cainTimerRef.current=null}
     setCainArriving(false);
-    // Cain location logic: 35% follows instantly (with arrival anim), 65% arrives after delay
-    if(cainScene!==key){
-      const followNow=Math.random()<0.35;
-      if(followNow){
-        // Brief delay then arrive with animation
-        cainTimerRef.current=setTimeout(()=>{setCainArriving(true);setCainScene(key);
-          setTimeout(()=>setCainArriving(false),1800)},1200);
-      }else{
-        // Arrive after 12-25 seconds
-        const delay=12000+Math.random()*13000;
-        cainTimerRef.current=setTimeout(()=>{setCainArriving(true);setCainScene(key);
-          setTimeout(()=>setCainArriving(false),1800)},delay);
-      }
-    }
+    // Cain stays where he is. He only comes when you call him (via chat) or after a long wait.
     try{const d=await api.changeScene(sid,key);setMsgs(p=>[...p,{role:'system',text:`── ${d.scene_name} ──`}])}catch(e){}};
+
+  // If you send a message from a scene Cain isn't in, he comes to you
+  const summonCain=(targetScene)=>{
+    if(cainScene===targetScene)return;
+    setCainArriving(true);setCainScene(targetScene);
+    setTimeout(()=>setCainArriving(false),1800);
+  };
 
   if(phase==='opening')return <OpeningScreen onEnter={enterGame}/>;
 
@@ -338,8 +334,8 @@ function App(){
             background:`radial-gradient(circle,${sc.accent}06 0%,transparent 70%)`}}>
             <span style={{fontSize:24,opacity:.2}}>✦</span></div>
           <div style={{textAlign:'center',color:'#6a6080',fontSize:12,letterSpacing:1,lineHeight:1.8,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>
-            <div style={{opacity:.5}}>该隐不在这里</div>
-            <div style={{opacity:.3,fontSize:11,marginTop:4}}>也许他会被你吸引过来……</div></div>
+            <div style={{opacity:.5}}>月光罅隙的主人隐匿了他的身影</div>
+            <div style={{opacity:.3,fontSize:11,marginTop:4}}>也许叫他的名字，他会循声而来……</div></div>
         </div>}
 
         {/* Dialogue */}
@@ -368,7 +364,7 @@ function App(){
             <div style={{fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",fontSize:14,letterSpacing:1}}>月光如水，罅隙的主人正望向你……</div>
             <div style={{fontSize:11,opacity:.5,marginTop:6}}>试着和 Cain 说些什么吧</div></div>}
           {!loading&&!cainHere&&hasSpoken&&<div style={{fontSize:fs,lineHeight:2.2,color:'#5a5070',textAlign:'center',padding:'30px 0',fontStyle:'italic'}}>
-            <div style={{fontSize:14,opacity:.4,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",letterSpacing:1}}>只有月光和寂静……</div></div>}
+            <div style={{fontSize:14,opacity:.4,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",letterSpacing:1}}>空气中残留着他的气息——薄荷与月光的味道……</div></div>}
           {!ready&&!error&&<div style={{fontSize:fs,color:'#7a7090',textAlign:'center'}}>正在连接<span className="loading-dots"/></div>}
         </div></div>
 
@@ -376,12 +372,12 @@ function App(){
       <div style={{padding:`8px ${px}px 10px`,paddingBottom:`calc(10px + env(safe-area-inset-bottom))`}}>
         <div style={{display:'flex',gap:8,alignItems:'center',background:'rgba(12,11,20,.55)',backdropFilter:'blur(18px)',borderRadius:22,border:`1px solid ${inputFocused?sc.accent+'40':'rgba(255,255,255,.06)'}`,padding:'6px 6px 6px 18px',transition:'all .3s',boxShadow:inputFocused?`0 0 20px ${sc.accent}10`:'none'}}>
           <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}}
-            onFocus={()=>setInputFocused(true)} onBlur={()=>setInputFocused(false)} placeholder={!cainHere?'该隐不在这里……':loading?'Cain 正在回应…':'对 Cain 说点什么…'} disabled={loading||!ready||!cainHere}
-            style={{flex:1,background:'transparent',border:'none',outline:'none',color:cainHere?'#e8e0f0':'#4a4060',fontSize:fs,fontFamily:'inherit',lineHeight:1.4}}/>
-          <button onClick={send} disabled={loading||!input.trim()||!ready||!cainHere} style={{width:40,height:40,borderRadius:16,border:'none',
-            background:input.trim()&&!loading&&cainHere?`linear-gradient(135deg,${sc.accent},${sc.accent}88)`:'rgba(255,255,255,.04)',color:input.trim()&&!loading&&cainHere?'#fff':'#444',fontSize:16,
-            cursor:input.trim()&&!loading&&cainHere?'pointer':'default',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .3s',flexShrink:0,
-            boxShadow:input.trim()&&!loading&&cainHere?`0 4px 16px ${sc.accent}33`:'none'}}>➤</button></div></div>
+            onFocus={()=>setInputFocused(true)} onBlur={()=>setInputFocused(false)} placeholder={!cainHere?'叫他的名字，也许他会循声而来……':loading?'Cain 正在回应…':'对 Cain 说点什么…'} disabled={loading||!ready}
+            style={{flex:1,background:'transparent',border:'none',outline:'none',color:'#e8e0f0',fontSize:fs,fontFamily:'inherit',lineHeight:1.4}}/>
+          <button onClick={send} disabled={loading||!input.trim()||!ready} style={{width:40,height:40,borderRadius:16,border:'none',
+            background:input.trim()&&!loading?`linear-gradient(135deg,${sc.accent},${sc.accent}88)`:'rgba(255,255,255,.04)',color:input.trim()&&!loading?'#fff':'#444',fontSize:16,
+            cursor:input.trim()&&!loading?'pointer':'default',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .3s',flexShrink:0,
+            boxShadow:input.trim()&&!loading?`0 4px 16px ${sc.accent}33`:'none'}}>➤</button></div></div>
     </div></div>}
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
