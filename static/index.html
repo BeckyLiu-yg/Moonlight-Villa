@@ -12,20 +12,20 @@
 html,body{height:100dvh;overflow:hidden;overscroll-behavior:none;background:#07060e;color:#e8e0f0;-webkit-font-smoothing:antialiased}
 body{font-family:'Noto Serif SC','Georgia',serif}
 #root{height:100dvh}
-@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 @keyframes breathe{0%,100%{opacity:.6}50%{opacity:1}}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
 @keyframes dots{0%{content:'.'}33%{content:'..'}66%{content:'...'}}
-@keyframes sceneIn{from{opacity:0;transform:scale(1.04)}to{opacity:1;transform:scale(1)}}
+@keyframes sceneIn{from{opacity:0;transform:scale(1.05)}to{opacity:1;transform:scale(1)}}
 @keyframes starTwinkle{0%,100%{opacity:.2;transform:scale(.8)}50%{opacity:.8;transform:scale(1.2)}}
-@keyframes eventSlide{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes eventSlide{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 .fade-in{animation:fadeIn .5s ease-out both}
-.scene-trans{animation:sceneIn .8s ease-out both}
-.hide-scroll::-webkit-scrollbar{display:none}.hide-scroll{scrollbar-width:none}
+.scene-transition{animation:sceneIn .8s ease-out both}
+.hide-scroll::-webkit-scrollbar{display:none}.hide-scroll{-ms-overflow-style:none;scrollbar-width:none}
 .cursor{display:inline-block;width:2px;height:1em;background:currentColor;margin-left:2px;animation:blink .7s infinite;vertical-align:text-bottom}
-.ldots::after{content:'.';animation:dots 1.2s infinite steps(1)}
+.loading-dots::after{content:'.';animation:dots 1.2s infinite steps(1)}
 button,input{-webkit-tap-highlight-color:transparent}
 input::placeholder{color:#6a6080}
 </style>
@@ -38,394 +38,316 @@ input::placeholder{color:#6a6080}
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback,useMemo}=React;
 const API=window.location.origin;
-
 const SCENES={
-  garden:{name:'月光花园',icon:'🌹',accent:'#b088ff',grad:'radial-gradient(ellipse at 30% 20%,#1e1245 0%,#0d0f24 50%,#0a0c1a 100%)',bgm:'garden'},
-  library:{name:'藏书阁',icon:'📚',accent:'#7eb8ff',grad:'radial-gradient(ellipse at 70% 30%,#151e3a 0%,#0d1220 50%,#0a0c1a 100%)',bgm:'library'},
-  ballroom:{name:'星光舞厅',icon:'✦',accent:'#ffc966',grad:'radial-gradient(ellipse at 50% 40%,#231838 0%,#14102a 50%,#0a0c1a 100%)',bgm:'ballroom'},
-  attic:{name:'秘密阁楼',icon:'🔮',accent:'#ff88b8',grad:'radial-gradient(ellipse at 40% 60%,#201230 0%,#140e22 50%,#0a0c1a 100%)',bgm:'attic'},
-  basement:{name:'地下酒窖',icon:'🍷',accent:'#ff7070',grad:'radial-gradient(ellipse at 50% 80%,#1a0e1e 0%,#100a14 50%,#0a0c1a 100%)',bgm:'basement'},
+  garden:{name:'月光花园',icon:'🌹',accent:'#b088ff',grad:'radial-gradient(ellipse at 30% 20%,#1e1245 0%,#0d0f24 50%,#0a0c1a 100%)'},
+  library:{name:'藏书阁',icon:'📚',accent:'#7eb8ff',grad:'radial-gradient(ellipse at 70% 30%,#151e3a 0%,#0d1220 50%,#0a0c1a 100%)'},
+  ballroom:{name:'星光舞厅',icon:'✦',accent:'#ffc966',grad:'radial-gradient(ellipse at 50% 40%,#231838 0%,#14102a 50%,#0a0c1a 100%)'},
+  attic:{name:'秘密阁楼',icon:'🔮',accent:'#ff88b8',grad:'radial-gradient(ellipse at 40% 60%,#201230 0%,#140e22 50%,#0a0c1a 100%)'},
+  basement:{name:'地下酒窖',icon:'🍷',accent:'#ff7070',grad:'radial-gradient(ellipse at 50% 80%,#1a0e1e 0%,#100a14 50%,#0a0c1a 100%)'},
 };
-const EMOLABEL={neutral:'平静',gentle:'温柔',playful:'调皮',thoughtful:'沉思',touched:'触动',sad:'忧伤',mysterious:'神秘',shy:'害羞',amused:'愉悦',longing:'思念',vulnerable:'脆弱'};
-const MOOD={
-  neutral:{f:'none'},gentle:{f:'saturate(1.1) brightness(1.04)'},playful:{f:'saturate(1.12) brightness(1.06)'},
-  thoughtful:{f:'saturate(.95) brightness(.94)'},mysterious:{f:'saturate(.88) brightness(.9) contrast(1.06)'},
-  shy:{f:'saturate(1.08) brightness(1.02)'},sad:{f:'saturate(.8) brightness(.88)'},touched:{f:'saturate(1.1) brightness(1.05)'},
-  amused:{f:'saturate(1.15) brightness(1.06)'},longing:{f:'saturate(.9) brightness(.93)'},vulnerable:{f:'saturate(.85) brightness(.9)'},
-};
+const EMOTION_MAP={neutral:'平静',gentle:'温柔',playful:'调皮',thoughtful:'沉思',touched:'触动',sad:'忧伤',mysterious:'神秘',shy:'害羞',cold:'冷淡',amused:'愉悦',longing:'思念',vulnerable:'脆弱'};
+const MOOD_FX={neutral:{f:'none'},gentle:{f:'saturate(1.1) brightness(1.04)'},playful:{f:'saturate(1.12) brightness(1.06)'},thoughtful:{f:'saturate(.95) brightness(.94)'},mysterious:{f:'saturate(.88) brightness(.9) contrast(1.06)'},shy:{f:'saturate(1.08) brightness(1.02)'},sad:{f:'saturate(.8) brightness(.88)'},touched:{f:'saturate(1.1) brightness(1.05)'},cold:{f:'saturate(.75) brightness(.92) contrast(1.08)'},amused:{f:'saturate(1.15) brightness(1.06)'},longing:{f:'saturate(.9) brightness(.93)'},vulnerable:{f:'saturate(.85) brightness(.9)'}};
 
 const api={
   post:async(u,b)=>{const r=await fetch(API+u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});if(!r.ok){const e=await r.json().catch(()=>({error:'网络错误'}));throw new Error(e.error||'失败')}return r.json()},
-  session:()=>api.post('/api/session',{}),
+  createSession:()=>api.post('/api/session',{}),
   chat:(sid,msg,scene)=>api.post('/api/chat',{session_id:sid,message:msg,scene}),
-  sceneChange:(sid,scene)=>api.post('/api/scene',{session_id:sid,scene}),
-  randomEvt:(sid)=>api.post('/api/random_event',{session_id:sid}),
+  changeScene:(sid,scene)=>api.post('/api/scene',{session_id:sid,scene}),
+  randomEvent:(sid)=>api.post('/api/random_event',{session_id:sid}),
   save:(sid,slot)=>api.post('/api/save',{session_id:sid,slot}),
-  async tts(text){const r=await fetch(API+'/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,pre_cleaned:true})});if(!r.ok)throw new Error('TTS失败');return r.blob()},
+  async ttsBlob(text){const r=await fetch(API+'/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,pre_cleaned:true})});if(!r.ok)throw new Error('TTS失败');return r.blob()},
 };
 
-/* ── BGM Engine: real MP3 files ── */
+/* ── BGM Engine: loads MP3 from static/bgm/*.mp3 ── */
 class BGMEngine{
-  constructor(){this.current=null;this.vol=0.15;this.scene=null;this.fading=false}
-  setVolume(v){this.vol=v;if(this.current)this.current.volume=v}
-  play(sceneKey){
-    if(sceneKey===this.scene)return;
-    this.scene=sceneKey;
-    const url=`/static/bgm/${sceneKey}.mp3`;
+  constructor(){this.current=null;this.audio=null;this.vol=0.15;this.fading=false}
+  setVolume(v){this.vol=v;if(this.audio)this.audio.volume=v}
+  async play(scene){
+    if(scene===this.current&&this.audio&&!this.audio.paused)return;
     // Fade out old
-    if(this.current){
-      const old=this.current;
-      const fade=setInterval(()=>{if(old.volume>0.01){old.volume=Math.max(0,old.volume-0.02)}else{clearInterval(fade);old.pause();old.src=''}},50);
-    }
-    // Start new
-    const a=new Audio(url);a.loop=true;a.volume=0;
-    a.addEventListener('canplaythrough',()=>{
-      a.play().catch(()=>{});
-      // Fade in
-      const fi=setInterval(()=>{if(a.volume<this.vol-0.01){a.volume=Math.min(this.vol,a.volume+0.01)}else{a.volume=this.vol;clearInterval(fi)}},50);
-    },{once:true});
-    a.addEventListener('error',()=>{/* BGM file not found, silent */});
-    this.current=a;
+    if(this.audio){const old=this.audio;this._fadeOut(old);this.audio=null}
+    this.current=scene;
+    const a=new Audio(`/static/bgm/${scene}.mp3`);
+    a.loop=true;a.volume=0;
+    try{
+      await a.play();
+      this.audio=a;this._fadeIn(a,this.vol);
+    }catch(e){/* no bgm file, silent */}
   }
-  pause(){this.current?.pause()}
-  resume(){this.current?.play().catch(()=>{})}
-  destroy(){if(this.current){this.current.pause();this.current.src=''}}
+  _fadeIn(a,target){let v=0;const t=setInterval(()=>{v+=0.005;if(v>=target){a.volume=target;clearInterval(t)}else a.volume=v},50)}
+  _fadeOut(a){const t=setInterval(()=>{if(a.volume>0.01){a.volume=Math.max(0,a.volume-0.005)}else{a.pause();clearInterval(t)}},50)}
+  pause(){this.audio?.pause()}
+  resume(){if(this.audio){try{this.audio.play()}catch(e){}}}
+  destroy(){this.audio?.pause();this.audio=null}
 }
 
-/* ── Synced Typewriter: matches audio duration ── */
-function useSyncTypewriter(text,audioReady,audioDuration,fallbackSpeed=25){
-  const[d,setD]=useState('');const[done,setDone]=useState(true);const iRef=useRef(0);const tRef=useRef(null);
+/* ── Synced Typewriter: speed based on audio duration ── */
+function useSyncedTypewriter(text,audioDuration,fallbackSpeed=30){
+  const[d,setD]=useState('');const[done,setDone]=useState(true);const ref=useRef(null);
   useEffect(()=>{
     if(!text){setD('');setDone(true);return}
-    setD('');setDone(false);iRef.current=0;clearInterval(tRef.current);
-    // Calculate speed: if audio duration known, match it; otherwise use fallback
+    setD('');setDone(false);let idx=0;
+    // Calculate speed: if we have audio duration, sync to it; otherwise use fallback
+    const totalChars=text.length;
     let speed=fallbackSpeed;
-    if(audioReady&&audioDuration>0){
-      // Leave 0.5s buffer at end
-      speed=Math.max(5,Math.min(80,((audioDuration-0.5)*1000)/text.length));
+    if(audioDuration&&audioDuration>0){
+      // Leave 0.3s buffer at end
+      speed=Math.max(10,Math.min(80,((audioDuration-0.3)*1000)/totalChars));
     }
-    tRef.current=setInterval(()=>{
-      iRef.current++;
-      if(iRef.current>=text.length){setD(text);setDone(true);clearInterval(tRef.current)}
-      else setD(text.slice(0,iRef.current));
+    ref.current=setInterval(()=>{idx++;
+      if(idx>=totalChars){setD(text);setDone(true);clearInterval(ref.current)}
+      else setD(text.slice(0,idx))
     },speed);
-    return()=>clearInterval(tRef.current);
-  },[text,audioReady,audioDuration,fallbackSpeed]);
-  const skip=useCallback(()=>{clearInterval(tRef.current);setD(text||'');setDone(true)},[text]);
-  return{display:d,done,skip};
+    return()=>{if(ref.current)clearInterval(ref.current)}
+  },[text,audioDuration,fallbackSpeed]);
+  return{display:d,done,skip:useCallback(()=>{if(ref.current)clearInterval(ref.current);setD(text||'');setDone(true)},[text])}
 }
 
-/* ── Small components ── */
-function Stars({n=30}){const s=useMemo(()=>Array.from({length:n},(_,i)=>({i,l:Math.random()*100,t:Math.random()*100,
-  sz:1+Math.random()*2,dl:Math.random()*5,du:2+Math.random()*4})),[n]);
-  return <div style={{position:'absolute',inset:0,pointerEvents:'none',overflow:'hidden'}}>
-    {s.map(s=><div key={s.i} style={{position:'absolute',left:s.l+'%',top:s.t+'%',width:s.sz,height:s.sz,
-      borderRadius:'50%',background:'#fff',animation:`starTwinkle ${s.du}s ${s.dl}s infinite`}}/>)}</div>}
+/* ── Sub Components ── */
+function Stars({count=40}){const s=useMemo(()=>Array.from({length:count},(_,i)=>({id:i,l:Math.random()*100,t:Math.random()*100,sz:1+Math.random()*2,dl:Math.random()*5,dur:2+Math.random()*4})),[count]);
+  return <div style={{position:'absolute',inset:0,pointerEvents:'none',overflow:'hidden'}}>{s.map(x=><div key={x.id} style={{position:'absolute',left:x.l+'%',top:x.t+'%',width:x.sz,height:x.sz,borderRadius:'50%',background:'#fff',animation:`starTwinkle ${x.dur}s ${x.dl}s infinite`}}/>)}</div>}
 
-function Particles({sk,accent}){const ps=useMemo(()=>{
-  const c={garden:['✦','·','✧','❀'],library:['✦','·','✧'],ballroom:['✦','✧','⋆'],attic:['✦','·'],basement:['·']}[sk]||['✦'];
-  const n={garden:10,library:6,ballroom:12,attic:5,basement:3}[sk]||6;
-  return Array.from({length:n},(_,i)=>({i,ch:c[i%c.length],x:Math.random()*100,y:Math.random()*100,
-    sz:5+Math.random()*10,dl:Math.random()*4,du:3+Math.random()*5,op:.1+Math.random()*.2}))},[sk]);
-  return <div style={{position:'absolute',inset:0,pointerEvents:'none',overflow:'hidden'}}>
-    {ps.map(p=><span key={p.i} style={{position:'absolute',left:p.x+'%',top:p.y+'%',fontSize:p.sz,opacity:p.op,
-      color:accent,animation:`float ${p.du}s ${p.dl}s infinite ease-in-out`}}>{p.ch}</span>)}</div>}
+function Particles({sceneKey,accent}){const ps=useMemo(()=>{const cfg={garden:['✦','·','✧','❀'],library:['✦','·','✧'],ballroom:['✦','✧','·','⋆'],attic:['✦','·'],basement:['·','✦']};
+  const ch=cfg[sceneKey]||cfg.garden;const n=sceneKey==='ballroom'?14:sceneKey==='garden'?12:6;
+  return Array.from({length:n},(_,i)=>({id:i,ch:ch[i%ch.length],x:Math.random()*100,y:Math.random()*100,sz:5+Math.random()*10,dl:Math.random()*4,dur:3+Math.random()*5,op:.1+Math.random()*.2}))},[sceneKey]);
+  return <div style={{position:'absolute',inset:0,pointerEvents:'none',overflow:'hidden'}}>{ps.map(p=><span key={p.id} style={{position:'absolute',left:p.x+'%',top:p.y+'%',fontSize:p.sz,opacity:p.op,color:accent,animation:`float ${p.dur}s ${p.dl}s infinite ease-in-out`}}>{p.ch}</span>)}</div>}
 
-function AffBar({v,accent}){const l=v<20?'初识':v<40?'好奇':v<60?'信赖':v<80?'心动':'眷恋';
-  return <div style={{display:'flex',alignItems:'center',gap:6}}>
-    <span style={{fontSize:13,animation:v>60?'pulse 1.5s infinite':'none'}}>💜</span>
-    <div style={{width:56,height:4,borderRadius:2,background:'rgba(255,255,255,.08)',overflow:'hidden'}}>
-      <div style={{width:v+'%',height:'100%',borderRadius:2,background:`linear-gradient(90deg,${accent}66,${accent})`,transition:'width 1.2s'}}/></div>
+function AffectionBar({value,accent}){const l=value<20?'初识':value<40?'好奇':value<60?'信赖':value<80?'心动':'眷恋';
+  return <div style={{display:'flex',alignItems:'center',gap:6}}><span style={{fontSize:13,animation:value>60?'pulse 1.5s infinite':'none'}}>💜</span>
+    <div style={{position:'relative',width:56,height:4,borderRadius:2,background:'rgba(255,255,255,.08)',overflow:'hidden'}}>
+      <div style={{width:value+'%',height:'100%',borderRadius:2,background:`linear-gradient(90deg,${accent}66,${accent})`,transition:'width 1.2s'}}/></div>
     <span style={{fontSize:10,opacity:.5,letterSpacing:1}}>{l}</span></div>}
 
-function Opening({onEnter}){const[p,setP]=useState(0);
-  useEffect(()=>{const a=setTimeout(()=>setP(1),400);const b=setTimeout(()=>setP(2),1800);const c=setTimeout(()=>setP(3),3200);
-    return()=>{clearTimeout(a);clearTimeout(b);clearTimeout(c)}},[]);
-  return <div onClick={p>=2?onEnter:undefined} style={{position:'fixed',inset:0,zIndex:100,
-    background:'radial-gradient(ellipse at 50% 40%,#12102a 0%,#07060e 70%)',display:'flex',flexDirection:'column',
-    alignItems:'center',justifyContent:'center',cursor:p>=2?'pointer':'default',
-    fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>
-    <Stars n={60}/>
-    <div style={{position:'absolute',top:'18%',width:120,height:120,borderRadius:'50%',
-      background:'radial-gradient(circle,rgba(200,180,255,.15) 0%,transparent 70%)',animation:'breathe 4s infinite'}}/>
-    {p>=1&&<h1 style={{fontSize:36,fontWeight:300,letterSpacing:12,color:'#e8e0ff',animation:'fadeIn 1.5s both',
-      textShadow:'0 0 40px rgba(168,130,255,.3)',zIndex:2}}>月光罅隙</h1>}
-    {p>=2&&<div style={{marginTop:16,fontSize:14,letterSpacing:6,color:'#8a80a0',fontStyle:'italic',animation:'fadeIn 1.2s both',zIndex:2}}>Moonlight Rift</div>}
-    {p>=2&&<div style={{marginTop:40,maxWidth:300,textAlign:'center',fontSize:13,lineHeight:2,color:'#7a7090',
-      animation:'fadeIn 1.5s .3s both',zIndex:2,fontFamily:'Noto Serif SC,serif'}}>时空的罅隙中，月光永驻<br/>有人已等待了很久很久……</div>}
-    {p>=3&&<button onClick={onEnter} style={{marginTop:48,padding:'12px 36px',background:'transparent',
-      border:'1px solid rgba(168,130,255,.3)',borderRadius:24,color:'#b8a8d8',fontSize:13,letterSpacing:4,
-      cursor:'pointer',animation:'fadeIn 1s both, breathe 3s 1s infinite',fontFamily:'Noto Serif SC,serif',zIndex:2}}>推开门扉</button>}
+function OpeningScreen({onEnter}){const[p,setP]=useState(0);
+  useEffect(()=>{const a=setTimeout(()=>setP(1),400);const b=setTimeout(()=>setP(2),1800);const c=setTimeout(()=>setP(3),3200);return()=>{clearTimeout(a);clearTimeout(b);clearTimeout(c)}},[]);
+  return <div onClick={p>=2?onEnter:undefined} style={{position:'fixed',inset:0,zIndex:100,background:'radial-gradient(ellipse at 50% 40%,#12102a 0%,#07060e 70%)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:p>=2?'pointer':'default',fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>
+    <Stars count={60}/>
+    <div style={{position:'absolute',top:'18%',width:120,height:120,borderRadius:'50%',background:'radial-gradient(circle,rgba(200,180,255,.15) 0%,transparent 70%)',animation:'breathe 4s infinite'}}/>
+    {p>=1&&<h1 style={{fontSize:36,fontWeight:300,letterSpacing:12,color:'#e8e0ff',animation:'fadeIn 1.5s ease-out both',textShadow:'0 0 40px rgba(168,130,255,.3)',position:'relative',zIndex:2}}>月光罅隙</h1>}
+    {p>=2&&<div style={{marginTop:16,fontSize:14,letterSpacing:6,color:'#8a80a0',fontStyle:'italic',animation:'fadeIn 1.2s ease-out both',position:'relative',zIndex:2}}>Moonlight Rift</div>}
+    {p>=2&&<div style={{marginTop:40,maxWidth:300,textAlign:'center',fontSize:13,lineHeight:2,color:'#7a7090',animation:'fadeIn 1.5s .3s ease-out both',position:'relative',zIndex:2,fontFamily:'Noto Serif SC,serif'}}>时空的罅隙中，月光永驻<br/>有人已等待了很久很久……</div>}
+    {p>=3&&<button onClick={onEnter} style={{marginTop:48,padding:'12px 36px',background:'transparent',border:'1px solid rgba(168,130,255,.3)',borderRadius:24,color:'#b8a8d8',fontSize:13,letterSpacing:4,cursor:'pointer',animation:'fadeIn 1s ease-out both, breathe 3s 1s infinite',fontFamily:'Noto Serif SC,serif',position:'relative',zIndex:2}}>推开门扉</button>}
   </div>}
 
-function EventToast({event,accent,onDismiss}){
-  if(!event)return null;
-  return <div onClick={onDismiss} style={{position:'absolute',inset:0,zIndex:30,background:'rgba(7,6,14,.75)',
-    backdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',
-    animation:'fadeIn .4s ease-out',padding:24}}>
-    <div style={{maxWidth:340,background:'rgba(15,12,28,.92)',borderRadius:20,border:`1px solid ${accent}25`,
-      padding:'28px 30px',animation:'eventSlide .5s cubic-bezier(.23,1,.32,1) both',
-      boxShadow:`0 16px 48px rgba(0,0,0,.5)`}}>
+function EventToast({event,accent,onDismiss}){if(!event)return null;
+  return <div onClick={onDismiss} style={{position:'absolute',inset:0,zIndex:30,background:'rgba(7,6,14,.75)',backdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',animation:'fadeIn .4s ease-out',padding:24}}>
+    <div style={{maxWidth:340,background:'rgba(15,12,28,.92)',backdropFilter:'blur(24px)',borderRadius:20,border:`1px solid ${accent}25`,padding:'28px 30px',animation:'eventSlide .5s cubic-bezier(.23,1,.32,1) both',boxShadow:`0 16px 48px rgba(0,0,0,.5)`}}>
       <div style={{fontSize:11,color:accent,letterSpacing:3,marginBottom:14,opacity:.6,textAlign:'center'}}>✦ 该隐的低语 ✦</div>
       <div style={{fontSize:14,lineHeight:2.2,color:'#e4daf0',letterSpacing:.5,textAlign:'center'}}>
-        {event.text.split(/([（(][^）)]+[）)])/).map((pt,i)=>
-          /^[（(]/.test(pt)?<span key={i} style={{color:accent+'bb',fontStyle:'italic',fontSize:12.5,display:'block',marginBottom:6}}>{pt}</span>
-          :<span key={i}>{pt}</span>)}</div>
-      <div style={{fontSize:10,opacity:.25,marginTop:16,textAlign:'center'}}>轻触继续</div>
-    </div></div>}
+        {event.text.split(/([（(][^）)]+[）)])/).map((part,i)=>/^[（(]/.test(part)?<span key={i} style={{color:accent+'bb',fontStyle:'italic',fontSize:12.5,display:'block',marginBottom:6}}>{part}</span>:<span key={i}>{part}</span>)}</div>
+      <div style={{fontSize:10,opacity:.25,marginTop:16,textAlign:'center'}}>轻触继续</div></div></div>}
 
-function Settings({show,onClose,accent,sid,bgmVol,onBgmVol,textSpeed,onTextSpeed,autoVoice,onAutoVoice}){
+function SettingsPanel({show,onClose,accent,sessionId,bgmVol,onBgmVol,textSpeed,onTextSpeed,autoVoice,onAutoVoice}){
   const[saving,setSaving]=useState(false);const[msg,setMsg]=useState('');
+  const doSave=async(slot)=>{setSaving(true);setMsg('');try{await api.save(sessionId,slot);setMsg('✓ 存档成功')}catch(e){setMsg('✕ '+e.message)}finally{setSaving(false)}};
   if(!show)return null;
-  return <div style={{position:'absolute',inset:0,zIndex:50,background:'rgba(7,6,14,.92)',backdropFilter:'blur(24px)',
-    display:'flex',flexDirection:'column',animation:'fadeIn .3s'}}>
+  return <div style={{position:'absolute',inset:0,zIndex:50,background:'rgba(7,6,14,.92)',backdropFilter:'blur(24px)',display:'flex',flexDirection:'column',animation:'fadeIn .3s'}}>
     <div style={{padding:'20px 20px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
       <span style={{fontSize:16,fontWeight:500,letterSpacing:3}}>设 置</span>
-      <button onClick={onClose} style={{background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',
-        borderRadius:10,padding:'4px 12px',color:'#a098b0',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>✕</button></div>
+      <button onClick={onClose} style={{background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',borderRadius:10,padding:'4px 12px',color:'#a098b0',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>✕</button></div>
     <div style={{flex:1,overflow:'auto',padding:'8px 20px 20px'}} className="hide-scroll">
-      <div style={{marginBottom:24}}><div style={{fontSize:12,color:'#8a80a0',marginBottom:10,letterSpacing:1}}>🔊 自动语音</div>
-        <div style={{display:'flex',gap:8}}>{[{l:'开启',v:true},{l:'关闭',v:false}].map(o=>
-          <button key={String(o.v)} onClick={()=>onAutoVoice(o.v)} style={{flex:1,padding:'8px 0',borderRadius:10,fontSize:12,
-            cursor:'pointer',fontFamily:'inherit',background:autoVoice===o.v?accent+'22':'rgba(255,255,255,.04)',
-            border:`1px solid ${autoVoice===o.v?accent+'55':'rgba(255,255,255,.08)'}`,
-            color:autoVoice===o.v?accent:'#8a80a0'}}>{o.l}</button>)}</div>
-        <div style={{fontSize:10,opacity:.35,marginTop:6}}>开启后字幕会和语音同步出现</div></div>
-      <div style={{marginBottom:24}}><div style={{fontSize:12,color:'#8a80a0',marginBottom:10,letterSpacing:1}}>🎵 背景音乐</div>
-        <input type="range" min="0" max="100" value={bgmVol} onChange={e=>onBgmVol(+e.target.value)}
-          style={{width:'100%',accentColor:accent,height:4}}/>
+      <div style={{marginBottom:24}}><div style={{fontSize:12,color:'#8a80a0',marginBottom:10}}>🔊 自动语音</div>
+        <div style={{display:'flex',gap:8}}>{[{l:'开启',v:true},{l:'关闭',v:false}].map(o=><button key={String(o.v)} onClick={()=>onAutoVoice(o.v)} style={{flex:1,padding:'8px 0',borderRadius:10,fontSize:12,cursor:'pointer',fontFamily:'inherit',background:autoVoice===o.v?accent+'22':'rgba(255,255,255,.04)',border:`1px solid ${autoVoice===o.v?accent+'55':'rgba(255,255,255,.08)'}`,color:autoVoice===o.v?accent:'#8a80a0'}}>{o.l}</button>)}</div>
+        <div style={{fontSize:10,opacity:.35,marginTop:6}}>开启后文字会和语音同步出现</div></div>
+      <div style={{marginBottom:24}}><div style={{fontSize:12,color:'#8a80a0',marginBottom:10}}>🎵 背景音乐</div>
+        <input type="range" min="0" max="100" value={bgmVol} onChange={e=>onBgmVol(+e.target.value)} style={{width:'100%',accentColor:accent,height:4}}/>
         <div style={{fontSize:11,opacity:.4,marginTop:4}}>{bgmVol}%</div></div>
-      {!autoVoice&&<div style={{marginBottom:24}}><div style={{fontSize:12,color:'#8a80a0',marginBottom:10,letterSpacing:1}}>✏️ 文字速度</div>
-        <div style={{display:'flex',gap:8}}>{[{l:'慢',v:50},{l:'中',v:30},{l:'快',v:15},{l:'瞬间',v:1}].map(o=>
-          <button key={o.v} onClick={()=>onTextSpeed(o.v)} style={{flex:1,padding:'8px 0',borderRadius:10,fontSize:12,
-            cursor:'pointer',fontFamily:'inherit',background:textSpeed===o.v?accent+'22':'rgba(255,255,255,.04)',
-            border:`1px solid ${textSpeed===o.v?accent+'55':'rgba(255,255,255,.08)'}`,
-            color:textSpeed===o.v?accent:'#8a80a0'}}>{o.l}</button>)}</div></div>}
-      <div><div style={{fontSize:12,color:'#8a80a0',marginBottom:10,letterSpacing:1}}>💾 存档</div>
-        <div style={{display:'flex',flexDirection:'column',gap:8}}>{['slot_1','slot_2','slot_3'].map((slot,i)=>
-          <button key={slot} onClick={async()=>{setSaving(true);setMsg('');try{await api.save(sid,slot);setMsg('✓ 存档成功')}catch(e){setMsg('✕ '+e.message)}finally{setSaving(false)}}}
-            disabled={saving} style={{padding:'12px 16px',borderRadius:12,fontSize:12,cursor:'pointer',fontFamily:'inherit',
-            background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',color:'#c0b8d0'}}>{saving?'保存中…':`存档位 ${i+1}`}</button>)}</div>
-        {msg&&<div style={{fontSize:11,marginTop:8,color:msg[0]==='✓'?'#88ff88':'#ff8888'}}>{msg}</div>}</div>
-    </div></div>}
+      <div style={{marginBottom:24}}><div style={{fontSize:12,color:'#8a80a0',marginBottom:10}}>✏️ 文字速度（关闭语音时生效）</div>
+        <div style={{display:'flex',gap:8}}>{[{l:'慢',v:50},{l:'中',v:30},{l:'快',v:15},{l:'瞬间',v:1}].map(o=><button key={o.v} onClick={()=>onTextSpeed(o.v)} style={{flex:1,padding:'8px 0',borderRadius:10,fontSize:12,cursor:'pointer',fontFamily:'inherit',background:textSpeed===o.v?accent+'22':'rgba(255,255,255,.04)',border:`1px solid ${textSpeed===o.v?accent+'55':'rgba(255,255,255,.08)'}`,color:textSpeed===o.v?accent:'#8a80a0'}}>{o.l}</button>)}</div></div>
+      <div style={{marginBottom:16}}><div style={{fontSize:12,color:'#8a80a0',marginBottom:10}}>💾 存档</div>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>{['slot_1','slot_2','slot_3'].map((slot,i)=><button key={slot} onClick={()=>doSave(slot)} disabled={saving} style={{padding:'12px 16px',borderRadius:12,fontSize:12,cursor:'pointer',fontFamily:'inherit',background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',color:'#c0b8d0'}}>{saving?'保存中…':`存档位 ${i+1}`}</button>)}</div>
+        {msg&&<div style={{fontSize:11,marginTop:8,color:msg[0]==='✓'?'#88ff88':'#ff8888'}}>{msg}</div>}</div></div></div>}
 
-function History({show,onClose,msgs,accent}){const ref=useRef(null);
-  useEffect(()=>{if(show)setTimeout(()=>ref.current?.scrollIntoView({behavior:'smooth'}),100)},[show,msgs.length]);
+function HistoryPanel({show,onClose,messages,accent}){const endRef=useRef(null);
+  useEffect(()=>{if(show)setTimeout(()=>endRef.current?.scrollIntoView({behavior:'smooth'}),100)},[show,messages.length]);
   if(!show)return null;
-  return <div style={{position:'absolute',inset:0,zIndex:40,background:'rgba(7,6,14,.94)',backdropFilter:'blur(24px)',
-    display:'flex',flexDirection:'column',animation:'fadeIn .3s'}}>
-    <div style={{padding:'20px 20px 12px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
+  return <div style={{position:'absolute',inset:0,zIndex:40,background:'rgba(7,6,14,.94)',backdropFilter:'blur(24px)',display:'flex',flexDirection:'column',animation:'fadeIn .3s'}}>
+    <div style={{padding:'20px 20px 12px',display:'flex',justifyContent:'space-between',borderBottom:'1px solid rgba(255,255,255,.06)'}}>
       <span style={{fontSize:14,letterSpacing:2}}>📜 对话记录</span>
-      <button onClick={onClose} style={{background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',borderRadius:10,
-        padding:'4px 12px',color:'#a098b0',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>✕</button></div>
+      <button onClick={onClose} style={{background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',borderRadius:10,padding:'4px 12px',color:'#a098b0',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>✕</button></div>
     <div style={{flex:1,overflow:'auto',padding:16}} className="hide-scroll">
-      {msgs.length===0?<div style={{textAlign:'center',opacity:.3,marginTop:50,fontSize:13}}>还没有对话…</div>
-      :msgs.map((m,i)=><div key={i} style={{marginBottom:12,textAlign:m.role==='user'?'right':'left'}}>
+      {messages.length===0?<div style={{textAlign:'center',opacity:.3,marginTop:50,fontSize:13}}>还没有对话…</div>
+      :messages.map((m,i)=><div key={i} style={{marginBottom:12,textAlign:m.role==='user'?'right':'left'}}>
         {m.role==='system'?<div style={{textAlign:'center',fontSize:11,opacity:.35,fontStyle:'italic',padding:'4px 0'}}>{m.text}</div>
-        :<div style={{display:'inline-block',maxWidth:'82%',padding:'10px 14px',borderRadius:14,fontSize:12.5,lineHeight:1.7,
-          background:m.role==='user'?accent+'18':'rgba(255,255,255,.05)',border:`1px solid ${m.role==='user'?accent+'30':'rgba(255,255,255,.06)'}`}}>
-          <div style={{fontSize:10,opacity:.45,marginBottom:4}}>{m.role==='user'?'你':'Cain'}</div>{m.text}</div>}
-      </div>)}<div ref={ref}/></div></div>}
+        :<div style={{display:'inline-block',maxWidth:'82%',padding:'10px 14px',borderRadius:14,fontSize:12.5,lineHeight:1.7,background:m.role==='user'?accent+'18':'rgba(255,255,255,.05)',border:`1px solid ${m.role==='user'?accent+'30':'rgba(255,255,255,.06)'}`}}>
+          <div style={{fontSize:10,opacity:.45,marginBottom:4}}>{m.role==='user'?'你':'Cain'}</div>{m.text}</div>}</div>)}
+      <div ref={endRef}/></div></div>}
 
-/* ============ APP ============ */
+/* ============ MAIN ============ */
 function App(){
-  const[w,setW]=useState(window.innerWidth);const[h,setH]=useState(window.innerHeight);
-  useEffect(()=>{const fn=()=>{setW(window.innerWidth);setH(window.visualViewport?.height||window.innerHeight)};
-    window.addEventListener('resize',fn);window.visualViewport?.addEventListener('resize',fn);
-    return()=>{window.removeEventListener('resize',fn);window.visualViewport?.removeEventListener('resize',fn)}},[]);
-  const sm=w<375;const short=h<650;const fs=sm?12.5:13.5;const px=sm?12:16;const portrait=sm||short?105:135;
-
   const[phase,setPhase]=useState('opening');
   const[sid,setSid]=useState(null);const[scene,setScene]=useState('garden');
   const[aff,setAff]=useState(15);const[emotion,setEmotion]=useState('neutral');
   const[msgs,setMsgs]=useState([]);const[input,setInput]=useState('');
   const[loading,setLoading]=useState(false);const[latestReply,setLatestReply]=useState('');
+  const[audioDur,setAudioDur]=useState(null);  // for sync
   const[error,setError]=useState(null);const[ready,setReady]=useState(false);
-  const[focused,setFocused]=useState(false);
-  const[showHist,setShowHist]=useState(false);const[showSet,setShowSet]=useState(false);
+  const[inputFocused,setInputFocused]=useState(false);
+  const[showHistory,setShowHistory]=useState(false);const[showSettings,setShowSettings]=useState(false);
   const[sceneKey,setSceneKey]=useState(0);
-  const[bgmVol,setBgmVol]=useState(25);const[textSpeed,setTextSpeed]=useState(25);
-  const[autoVoice,setAutoVoice]=useState(true);const[rndEvt,setRndEvt]=useState(null);
+  const[bgmVol,setBgmVol]=useState(25);const[textSpeed,setTextSpeed]=useState(30);
+  const[autoVoice,setAutoVoice]=useState(true);const[randomEvent,setRandomEvent]=useState(null);
   const[voiceState,setVoiceState]=useState('idle');
-  const[audioReady,setAudioReady]=useState(false);const[audioDur,setAudioDur]=useState(0);
+  const inputRef=useRef(null);const bgmRef=useRef(null);const voiceRef=useRef(null);const eventTimerRef=useRef(null);
+  const sc=SCENES[scene];const mood=MOOD_FX[emotion]||MOOD_FX.neutral;
+  const hasSpoken=msgs.some(m=>m.role==='ai');
 
-  const bgmRef=useRef(null);const voiceRef=useRef(null);const timerRef=useRef(null);
-  const sc=SCENES[scene];const mf=(MOOD[emotion]||MOOD.neutral).f;
-  const hidePort=focused&&short;
+  // responsive
+  const[dim,setDim]=useState({w:window.innerWidth,h:window.innerHeight});
+  useEffect(()=>{const fn=()=>setDim({w:window.innerWidth,h:window.visualViewport?.height||window.innerHeight});
+    window.addEventListener('resize',fn);window.visualViewport?.addEventListener('resize',fn);return()=>{window.removeEventListener('resize',fn);window.visualViewport?.removeEventListener('resize',fn)}},[]);
+  const sm=dim.w<375;const short=dim.h<650;const px=sm?12:16;const fs=sm?12.5:13.5;const portrait=sm||short?105:135;
+  const hidePortrait=inputFocused&&short;
 
-  // Synced typewriter: if autoVoice, speed matches audio; otherwise manual speed
-  const tw=useSyncTypewriter(latestReply,autoVoice&&audioReady,audioDur,textSpeed);
+  // synced typewriter
+  const tw=useSyncedTypewriter(latestReply,autoVoice?audioDur:null,textSpeed);
 
-  useEffect(()=>{api.session().then(d=>{setSid(d.session_id);setAff(d.affection);setReady(true)}).catch(()=>setError('无法连接服务器'))},[]);
+  useEffect(()=>{api.createSession().then(d=>{setSid(d.session_id);setAff(d.affection);setReady(true)}).catch(()=>setError('无法连接服务器'))},[]);
   useEffect(()=>{bgmRef.current=new BGMEngine();return()=>bgmRef.current?.destroy()},[]);
-  // Visibility
-  useEffect(()=>{const h=()=>{if(document.hidden){bgmRef.current?.pause();voiceRef.current?.pause()}
-    else{bgmRef.current?.resume()}};document.addEventListener('visibilitychange',h);return()=>document.removeEventListener('visibilitychange',h)},[]);
-  // Scene BGM
+  
+  // Visibility: pause/resume
+  useEffect(()=>{const h=()=>{if(document.hidden){bgmRef.current?.pause();voiceRef.current?.pause()}else{bgmRef.current?.resume()}};
+    document.addEventListener('visibilitychange',h);return()=>document.removeEventListener('visibilitychange',h)},[]);
+  
+  // Scene -> BGM
   useEffect(()=>{if(phase==='game')bgmRef.current?.play(scene)},[scene,phase]);
-  useEffect(()=>{bgmRef.current?.setVolume(bgmVol/100*0.2)},[bgmVol]);
+  useEffect(()=>{bgmRef.current?.setVolume(bgmVol/100*0.25)},[bgmVol]);
 
-  // Random event: 3 min
+  // Random event: 3 minutes — only show as toast overlay, never in chat
   useEffect(()=>{if(phase!=='game'||!sid)return;
-    const tick=()=>{timerRef.current=setTimeout(async()=>{
-      if(loading||showSet||showHist||rndEvt){tick();return}
-      try{const d=await api.randomEvt(sid);setRndEvt(d);setEmotion(d.emotion||'neutral');
-        setMsgs(p=>[...p,{role:'ai',text:d.text}]);
-        if(autoVoice&&d.tts_text){try{const b=await api.tts(d.tts_text);const u=URL.createObjectURL(b);
-          const a=new Audio(u);a.onended=()=>URL.revokeObjectURL(u);a.play().catch(()=>{})}catch(e){}}
-      }catch(e){}tick()},180000)};tick();return()=>clearTimeout(timerRef.current)},[phase,sid,loading,autoVoice]);
+    const tick=()=>{eventTimerRef.current=setTimeout(async()=>{
+      if(loading||showSettings||showHistory||randomEvent){tick();return}
+      try{const d=await api.randomEvent(sid);setRandomEvent(d);setEmotion(d.emotion||'neutral');
+        if(autoVoice&&d.tts_text){try{const blob=await api.ttsBlob(d.tts_text);const url=URL.createObjectURL(blob);const a=new Audio(url);a.onended=()=>URL.revokeObjectURL(url);a.play().catch(()=>{})}catch(e){}}
+      }catch(e){}tick()},180000)};tick();return()=>clearTimeout(eventTimerRef.current)},[phase,sid]);
 
-  const enter=()=>{setPhase('game');bgmRef.current?.play(scene)};
+  const enterGame=()=>{setPhase('game');bgmRef.current?.play(scene);bgmRef.current?.setVolume(bgmVol/100*0.25)};
 
-  // Play TTS and get duration for sync
-  const playTTS=useCallback(async(ttsText,fullText)=>{
-    if(!ttsText)return;
+  // Play TTS and return audio duration
+  const playTTS=useCallback(async(ttsText)=>{
+    if(!ttsText||voiceState==='loading')return null;
     if(voiceRef.current){voiceRef.current.pause();voiceRef.current=null}
-    setVoiceState('loading');setAudioReady(false);setAudioDur(0);
+    setVoiceState('loading');
     try{
-      const blob=await api.tts(ttsText);const url=URL.createObjectURL(blob);
-      const audio=new Audio(url);voiceRef.current=audio;
-      // Wait for metadata to get duration
-      await new Promise((res,rej)=>{audio.onloadedmetadata=res;audio.onerror=rej;audio.load()});
-      const dur=audio.duration||0;
-      // Signal the typewriter to use this duration
-      setAudioDur(dur);setAudioReady(true);
-      // Now start playback — typewriter will start simultaneously via state change
-      audio.onended=()=>{setVoiceState('idle');URL.revokeObjectURL(url);voiceRef.current=null};
-      audio.onerror=()=>{setVoiceState('idle');URL.revokeObjectURL(url);voiceRef.current=null};
-      await audio.play();setVoiceState('playing');
-    }catch(e){setVoiceState('idle');setAudioReady(true);setAudioDur(0)}
-  },[]);
-
+      const blob=await api.ttsBlob(ttsText);
+      const url=URL.createObjectURL(blob);
+      const audio=new Audio(url);
+      voiceRef.current=audio;
+      // Get duration
+      return new Promise((resolve)=>{
+        audio.onloadedmetadata=()=>{
+          const dur=audio.duration;
+          setAudioDur(dur);
+          audio.onended=()=>{setVoiceState('idle');URL.revokeObjectURL(url);voiceRef.current=null};
+          audio.onerror=()=>{setVoiceState('idle');URL.revokeObjectURL(url);voiceRef.current=null};
+          audio.play().then(()=>setVoiceState('playing')).catch(()=>setVoiceState('idle'));
+          resolve(dur);
+        };
+        audio.onerror=()=>{setVoiceState('idle');URL.revokeObjectURL(url);resolve(null)};
+        // Fallback if metadata doesn't fire
+        setTimeout(()=>{if(voiceState==='loading'){audio.play().then(()=>setVoiceState('playing')).catch(()=>setVoiceState('idle'));resolve(null)}},3000);
+      });
+    }catch(e){setVoiceState('idle');return null}},[voiceState]);
+  
   const stopTTS=useCallback(()=>{if(voiceRef.current){voiceRef.current.pause();voiceRef.current=null}setVoiceState('idle')},[]);
 
   const send=async()=>{const msg=input.trim();if(!msg||loading||!sid)return;
-    setInput('');setError(null);setMsgs(p=>[...p,{role:'user',text:msg}]);
-    setLatestReply('');setLoading(true);setAudioReady(false);setAudioDur(0);stopTTS();
+    setInput('');setError(null);setMsgs(p=>[...p,{role:'user',text:msg}]);setLatestReply('');setAudioDur(null);setLoading(true);stopTTS();
     try{
       const d=await api.chat(sid,msg,scene);
       setEmotion(d.emotion||'neutral');setAff(d.affection||aff);
       setMsgs(p=>[...p,{role:'ai',text:d.reply,emotion:d.emotion}]);
+      
       if(autoVoice&&d.tts_text){
-        // Start TTS fetch; typewriter waits for audio duration signal
+        // Start TTS fetch, get duration, then set reply to start synced typewriter
+        const dur=await playTTS(d.tts_text);
+        setAudioDur(dur);
         setLatestReply(d.reply);
-        playTTS(d.tts_text,d.reply);
       }else{
-        // No voice: just start typewriter immediately
-        setAudioReady(false);setAudioDur(0);
+        setAudioDur(null);
         setLatestReply(d.reply);
       }
     }catch(e){setError(e.message);setMsgs(p=>[...p,{role:'system',text:'⚠ '+e.message}])}finally{setLoading(false)}};
 
-  const switchScene=async(k)=>{if(k===scene||!sid)return;setScene(k);setSceneKey(n=>n+1);
-    try{const d=await api.sceneChange(sid,k);setMsgs(p=>[...p,{role:'system',text:`── ${d.scene_name} ──`}])}catch(e){}};
+  const switchScene=async(key)=>{if(key===scene||!sid)return;setScene(key);setSceneKey(k=>k+1);
+    try{const d=await api.changeScene(sid,key);setMsgs(p=>[...p,{role:'system',text:`── ${d.scene_name} ──`}])}catch(e){}};
 
-  if(phase==='opening')return <Opening onEnter={enter}/>;
+  if(phase==='opening')return <OpeningScreen onEnter={enterGame}/>;
 
-  return <div style={{height:'100dvh',maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column',
-    background:sc.grad,position:'relative',overflow:'hidden',filter:mf,transition:'filter 1.2s',
-    paddingTop:'env(safe-area-inset-top)',paddingBottom:'env(safe-area-inset-bottom)'}}>
-    <Stars n={25}/><Particles sk={scene} accent={sc.accent}/>
-    <EventToast event={rndEvt} accent={sc.accent} onDismiss={()=>setRndEvt(null)}/>
+  return <div style={{height:'100dvh',maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column',background:sc.grad,position:'relative',overflow:'hidden',filter:mood.f,transition:'filter 1.2s',paddingTop:'env(safe-area-inset-top)',paddingBottom:'env(safe-area-inset-bottom)'}}>
+    <Stars count={25}/><Particles sceneKey={scene} accent={sc.accent}/>
+    <EventToast event={randomEvent} accent={sc.accent} onDismiss={()=>setRandomEvent(null)}/>
 
-    <div key={sceneKey} className="scene-trans" style={{position:'relative',zIndex:2,display:'flex',flexDirection:'column',flex:1,minHeight:0}}>
+    <div key={sceneKey} className="scene-transition" style={{position:'relative',zIndex:2,display:'flex',flexDirection:'column',flex:1,minHeight:0}}>
       {/* Header */}
       <div style={{padding:`${sm?10:14}px ${px}px 6px`,display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-        <div><h1 style={{fontSize:sm?18:21,fontWeight:300,letterSpacing:4,color:'#f0e8ff',textShadow:`0 0 30px ${sc.accent}33`,
-          fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>月光罅隙</h1>
+        <div><h1 style={{fontSize:sm?18:21,fontWeight:300,letterSpacing:4,color:'#f0e8ff',textShadow:`0 0 30px ${sc.accent}33`,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>月光罅隙</h1>
           <div style={{fontSize:9,opacity:.35,letterSpacing:2,marginTop:2,fontFamily:"'Cormorant Garamond',serif",fontStyle:'italic'}}>MOONLIGHT RIFT</div></div>
         <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}}>
-          <AffBar v={aff} accent={sc.accent}/>
+          <AffectionBar value={aff} accent={sc.accent}/>
           <div style={{display:'flex',gap:6}}>
-            <button onClick={()=>{setShowHist(false);setShowSet(!showSet)}} style={{background:showSet?sc.accent+'18':'transparent',
-              border:'1px solid '+(showSet?sc.accent+'44':'rgba(255,255,255,.1)'),borderRadius:8,padding:'3px 8px',fontSize:10,
-              color:showSet?sc.accent:'#8a80a0',cursor:'pointer',fontFamily:'inherit'}}>⚙</button>
-            <button onClick={()=>{setShowSet(false);setShowHist(!showHist)}} style={{background:showHist?sc.accent+'18':'transparent',
-              border:'1px solid '+(showHist?sc.accent+'44':'rgba(255,255,255,.1)'),borderRadius:8,padding:'3px 8px',fontSize:10,
-              color:showHist?sc.accent:'#8a80a0',cursor:'pointer',fontFamily:'inherit'}}>📜</button></div></div></div>
+            <button onClick={()=>{setShowHistory(false);setShowSettings(!showSettings)}} style={{background:showSettings?sc.accent+'18':'transparent',border:'1px solid '+(showSettings?sc.accent+'44':'rgba(255,255,255,.1)'),borderRadius:8,padding:'3px 8px',fontSize:10,color:showSettings?sc.accent:'#8a80a0',cursor:'pointer',fontFamily:'inherit'}}>⚙</button>
+            <button onClick={()=>{setShowSettings(false);setShowHistory(!showHistory)}} style={{background:showHistory?sc.accent+'18':'transparent',border:'1px solid '+(showHistory?sc.accent+'44':'rgba(255,255,255,.1)'),borderRadius:8,padding:'3px 8px',fontSize:10,color:showHistory?sc.accent:'#8a80a0',cursor:'pointer',fontFamily:'inherit'}}>📜</button></div></div></div>
 
       {/* Scenes */}
       <div className="hide-scroll" style={{display:'flex',gap:6,padding:`2px ${px}px 8px`,overflowX:'auto'}}>
-        {Object.entries(SCENES).map(([k,s])=>{const act=scene===k;
-          return <button key={k} onClick={()=>switchScene(k)} style={{flexShrink:0,padding:'5px 11px',borderRadius:14,fontSize:11,minHeight:34,
-            cursor:'pointer',fontFamily:'inherit',transition:'all .35s',border:`1px solid ${act?s.accent+'66':'rgba(255,255,255,.06)'}`,
-            background:act?s.accent+'15':'rgba(255,255,255,.03)',color:act?s.accent:'#706880'}}>{s.icon} {s.name}</button>})}</div>
+        {Object.entries(SCENES).map(([k,s])=>{const active=scene===k;
+          return <button key={k} onClick={()=>switchScene(k)} style={{flexShrink:0,whiteSpace:'nowrap',padding:'5px 11px',borderRadius:14,fontSize:11,minHeight:34,cursor:'pointer',fontFamily:'inherit',transition:'all .35s',
+            border:`1px solid ${active?s.accent+'66':'rgba(255,255,255,.06)'}`,background:active?s.accent+'15':'rgba(255,255,255,.03)',color:active?s.accent:'#706880'}}>{s.icon} {s.name}</button>})}</div>
 
-      <History show={showHist} onClose={()=>setShowHist(false)} msgs={msgs} accent={sc.accent}/>
-      <Settings show={showSet} onClose={()=>setShowSet(false)} accent={sc.accent} sid={sid}
-        bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed}
-        autoVoice={autoVoice} onAutoVoice={setAutoVoice}/>
+      <HistoryPanel show={showHistory} onClose={()=>setShowHistory(false)} messages={msgs} accent={sc.accent}/>
+      <SettingsPanel show={showSettings} onClose={()=>setShowSettings(false)} accent={sc.accent} sessionId={sid} bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed} autoVoice={autoVoice} onAutoVoice={setAutoVoice}/>
 
       {/* Portrait + Dialogue */}
       <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'center',padding:`0 ${px}px`,minHeight:0}}>
-        {!hidePort&&<div style={{display:'flex',justifyContent:'center',minHeight:short?140:sm?160:210,alignItems:'center'}}>
+        
+        {/* Portrait: only show if Cain has spoken AND not hidden */}
+        {hasSpoken&&!hidePortrait&&<div style={{display:'flex',justifyContent:'center',alignItems:'center',minHeight:short?140:sm?160:210,transition:'min-height .4s'}}>
           <div style={{position:'relative'}}>
-            <div style={{position:'absolute',inset:-20,borderRadius:'50%',background:`radial-gradient(circle,${sc.accent}12 0%,transparent 70%)`,animation:'breathe 4s infinite'}}/>
-            <div style={{width:portrait,height:portrait,borderRadius:'50%',overflow:'hidden',border:`2px solid ${sc.accent}33`,
-              boxShadow:`0 0 40px ${sc.accent}18`,transition:'all .5s'}}>
-              <img src="/static/cain.jpg" alt="Cain" style={{width:'135%',height:'135%',objectFit:'cover',objectPosition:'50% 18%',
-                position:'absolute',top:'-5%',left:'-17%',transition:'filter 1s',
-                filter:emotion==='shy'?'saturate(1.1) brightness(1.05)':emotion==='sad'?'saturate(.75) brightness(.88)':'none'}}/></div>
-            <div style={{position:'absolute',bottom:-10,left:'50%',transform:'translateX(-50%)',background:'rgba(7,6,14,.85)',
-              padding:'3px 14px',borderRadius:12,fontSize:11,letterSpacing:2,whiteSpace:'nowrap',border:`1px solid ${sc.accent}28`,
-              color:sc.accent,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>Cain · {EMOLABEL[emotion]||'平静'}</div>
+            <div style={{position:'absolute',inset:-20,borderRadius:'50%',background:`radial-gradient(circle,${sc.accent}12 0%,transparent 70%)`,animation:'breathe 4s infinite',transition:'background 1s'}}/>
+            <div style={{width:portrait,height:portrait,borderRadius:'50%',overflow:'hidden',position:'relative',border:`2px solid ${sc.accent}33`,boxShadow:`0 0 40px ${sc.accent}18, inset 0 0 30px rgba(0,0,0,.4)`,transition:'all .5s'}}>
+              <img src="/static/cain.jpg" alt="Cain" style={{width:'135%',height:'135%',objectFit:'cover',objectPosition:'50% 18%',position:'absolute',top:'-5%',left:'-17%',
+                filter:emotion==='shy'?'saturate(1.1) brightness(1.05)':emotion==='sad'?'saturate(.75) brightness(.88)':emotion==='cold'?'saturate(.65) contrast(1.1)':'none',transition:'filter 1s'}}/></div>
+            <div style={{position:'absolute',bottom:-10,left:'50%',transform:'translateX(-50%)',background:'rgba(7,6,14,.85)',backdropFilter:'blur(12px)',padding:'3px 14px',borderRadius:12,fontSize:11,letterSpacing:2,whiteSpace:'nowrap',border:`1px solid ${sc.accent}28`,color:sc.accent,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>Cain · {EMOTION_MAP[emotion]||'平静'}</div>
           </div></div>}
 
-        <div style={{marginTop:hidePort?0:18,background:'rgba(12,11,20,.65)',backdropFilter:'blur(24px)',borderRadius:18,
-          border:`1px solid ${sc.accent}18`,padding:sm?'14px 16px':'18px 22px',minHeight:short?80:100,
-          position:'relative',flex:hidePort?1:'none',overflow:hidePort?'auto':'visible'}}>
+        {/* Dialogue */}
+        <div style={{marginTop:hasSpoken&&!hidePortrait?18:0,background:'rgba(12,11,20,.65)',backdropFilter:'blur(24px)',borderRadius:18,border:`1px solid ${sc.accent}18`,padding:sm?'14px 16px':'18px 22px',minHeight:short?80:100,position:'relative',flex:hidePortrait||!hasSpoken?1:'none',overflow:'auto',boxShadow:'inset 0 1px 0 rgba(255,255,255,.04), 0 8px 32px rgba(0,0,0,.3)'}}>
           <div style={{position:'absolute',top:8,left:12,fontSize:8,opacity:.15,color:sc.accent}}>✦</div>
           <div style={{position:'absolute',bottom:8,right:12,fontSize:8,opacity:.15,color:sc.accent}}>✦</div>
-          {hidePort&&<div style={{width:30,height:30,borderRadius:'50%',overflow:'hidden',border:`1px solid ${sc.accent}33`,float:'left',marginRight:10}}>
+
+          {hidePortrait&&hasSpoken&&<div style={{width:30,height:30,borderRadius:'50%',overflow:'hidden',border:`1px solid ${sc.accent}33`,float:'left',marginRight:10,marginTop:2}}>
             <img src="/static/cain.jpg" alt="" style={{width:'135%',height:'135%',objectFit:'cover',objectPosition:'50% 18%',position:'relative',top:'-5%',left:'-17%'}}/></div>}
 
           {error&&!loading&&msgs.length===0&&<div style={{color:'#ff7070',fontSize:12,textAlign:'center',padding:12}}>⚠ {error}</div>}
-
-          {loading&&<div style={{fontSize:fs,lineHeight:2,color:'#9088a0',fontStyle:'italic'}}>
-            <span style={{opacity:.5}}>Cain 正在思考</span><span className="ldots" style={{opacity:.5}}/></div>}
-
-          {!loading&&latestReply&&(autoVoice&&!audioReady&&voiceState==='loading')?
-            <div style={{fontSize:fs,lineHeight:2,color:'#9088a0',fontStyle:'italic'}}>
-              <span style={{opacity:.5}}>语音准备中</span><span className="ldots" style={{opacity:.5}}/></div>
-          :null}
-
-          {!loading&&latestReply&&(!autoVoice||audioReady)&&<div onClick={!tw.done?tw.skip:undefined}
-            style={{cursor:!tw.done?'pointer':'default'}}>
+          {loading&&<div style={{fontSize:fs,lineHeight:2,color:'#9088a0',fontStyle:'italic'}}><span style={{opacity:.5}}>Cain 正在思考</span><span className="loading-dots" style={{opacity:.5}}/></div>}
+          
+          {!loading&&latestReply&&<div onClick={!tw.done?tw.skip:undefined} style={{cursor:!tw.done?'pointer':'default'}}>
             <div style={{fontSize:fs,lineHeight:2,color:'#e4daf0',letterSpacing:.3}}>
-              {tw.display.split(/([（(][^）)]+[）)]|\*[^*]+\*)/).map((pt,i)=>
-                /^[（(*]/.test(pt)?<span key={i} style={{color:sc.accent+'cc',fontStyle:'italic',fontSize:fs-1}}>{pt.replace(/^\*|\*$/g,'')}</span>
-                :<span key={i}>{pt}</span>)}
+              {tw.display.split(/([（(][^）)]+[）)]|\*[^*]+\*)/).map((part,i)=>/^[（(*]/.test(part)?<span key={i} style={{color:sc.accent+'cc',fontStyle:'italic',fontSize:fs-1}}>{part.replace(/^\*|\*$/g,'')}</span>:<span key={i}>{part}</span>)}
               {!tw.done&&<span className="cursor"/>}</div>
             {tw.done&&<div className="fade-in" style={{display:'flex',gap:8,marginTop:10,justifyContent:'flex-end',alignItems:'center'}}>
-              {voiceState==='playing'&&<><span style={{fontSize:10,opacity:.5}}>🔊 播放中</span>
-                <button onClick={stopTTS} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,
-                  padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>⏹</button></>}
-              {voiceState==='idle'&&!autoVoice&&<button onClick={()=>{const l=msgs.filter(m=>m.role==='ai').pop();if(l)playTTS(l.text,l.text)}}
-                style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',
-                fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>🔊 播放</button>}
+              {voiceState==='playing'&&<><span style={{fontSize:10,opacity:.5}}>🔊 播放中</span><button onClick={stopTTS} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>⏹</button></>}
+              {voiceState==='loading'&&<span style={{fontSize:10,opacity:.5}}>⏳ 语音加载中…</span>}
+              {voiceState==='idle'&&!autoVoice&&<button onClick={()=>{const last=msgs.filter(m=>m.role==='ai').pop();if(last)playTTS(last.text)}} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>🔊 播放</button>}
             </div>}</div>}
 
-          {!loading&&!latestReply&&msgs.length===0&&ready&&<div style={{fontSize:fs,lineHeight:2.2,color:'#7a7090',textAlign:'center',padding:'8px 0'}}>
+          {!loading&&!latestReply&&!hasSpoken&&ready&&<div style={{fontSize:fs,lineHeight:2.2,color:'#7a7090',textAlign:'center',padding:'20px 0'}}>
             <div style={{fontSize:16,marginBottom:8,animation:'float 3s infinite',color:sc.accent+'88'}}>✦</div>
             <div style={{fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",fontSize:14,letterSpacing:1}}>月光如水，罅隙的主人正望向你……</div>
             <div style={{fontSize:11,opacity:.5,marginTop:6}}>试着和 Cain 说些什么吧</div></div>}
-          {!ready&&!error&&<div style={{fontSize:fs,color:'#7a7090',textAlign:'center'}}>正在连接<span className="ldots"/></div>}
+          {!ready&&!error&&<div style={{fontSize:fs,color:'#7a7090',textAlign:'center'}}>正在连接<span className="loading-dots"/></div>}
         </div></div>
 
       {/* Input */}
-      <div style={{padding:`8px ${px}px 10px`,paddingBottom:'calc(10px + env(safe-area-inset-bottom))'}}>
-        <div style={{display:'flex',gap:8,alignItems:'center',background:'rgba(12,11,20,.55)',backdropFilter:'blur(18px)',
-          borderRadius:22,border:`1px solid ${focused?sc.accent+'40':'rgba(255,255,255,.06)'}`,padding:'6px 6px 6px 18px',
-          transition:'all .3s',boxShadow:focused?`0 0 20px ${sc.accent}10`:'none'}}>
-          <input value={input} onChange={e=>setInput(e.target.value)}
-            onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}}
-            onFocus={()=>setFocused(true)} onBlur={()=>setFocused(false)}
-            placeholder={loading?'Cain 正在回应…':'对 Cain 说点什么…'} disabled={loading||!ready}
-            style={{flex:1,background:'transparent',border:'none',outline:'none',color:'#e8e0f0',fontSize:fs,fontFamily:'inherit'}}/>
+      <div style={{padding:`8px ${px}px 10px`,paddingBottom:`calc(10px + env(safe-area-inset-bottom))`}}>
+        <div style={{display:'flex',gap:8,alignItems:'center',background:'rgba(12,11,20,.55)',backdropFilter:'blur(18px)',borderRadius:22,border:`1px solid ${inputFocused?sc.accent+'40':'rgba(255,255,255,.06)'}`,padding:'6px 6px 6px 18px',transition:'all .3s',boxShadow:inputFocused?`0 0 20px ${sc.accent}10`:'none'}}>
+          <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}}
+            onFocus={()=>setInputFocused(true)} onBlur={()=>setInputFocused(false)} placeholder={loading?'Cain 正在回应…':'对 Cain 说点什么…'} disabled={loading||!ready}
+            style={{flex:1,background:'transparent',border:'none',outline:'none',color:'#e8e0f0',fontSize:fs,fontFamily:'inherit',lineHeight:1.4}}/>
           <button onClick={send} disabled={loading||!input.trim()||!ready} style={{width:40,height:40,borderRadius:16,border:'none',
-            background:input.trim()&&!loading?`linear-gradient(135deg,${sc.accent},${sc.accent}88)`:'rgba(255,255,255,.04)',
-            color:input.trim()&&!loading?'#fff':'#444',fontSize:16,cursor:input.trim()&&!loading?'pointer':'default',
-            display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontFamily:'inherit',
+            background:input.trim()&&!loading?`linear-gradient(135deg,${sc.accent},${sc.accent}88)`:'rgba(255,255,255,.04)',color:input.trim()&&!loading?'#fff':'#444',fontSize:16,
+            cursor:input.trim()&&!loading?'pointer':'default',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .3s',flexShrink:0,
             boxShadow:input.trim()&&!loading?`0 4px 16px ${sc.accent}33`:'none'}}>➤</button></div></div>
     </div></div>}
 
