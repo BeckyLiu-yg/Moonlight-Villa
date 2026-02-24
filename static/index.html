@@ -56,6 +56,8 @@ const api={
   changeScene:(sid,scene)=>api.post('/api/scene',{session_id:sid,scene}),
   randomEvent:(sid)=>api.post('/api/random_event',{session_id:sid}),
   save:(sid,slot)=>api.post('/api/save',{session_id:sid,slot}),
+  load:(sid,slot)=>api.post('/api/load',{session_id:sid,slot}),
+  listSaves:(sid)=>api.post('/api/saves/list',{session_id:sid}),
   async ttsBlob(text){const r=await fetch(API+'/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,pre_cleaned:true})});if(!r.ok)throw new Error('TTS失败');return r.blob()},
 };
 
@@ -130,6 +132,37 @@ function OpeningScreen({onEnter}){const[p,setP]=useState(0);
     {p>=3&&<button onClick={onEnter} style={{marginTop:48,padding:'12px 36px',background:'transparent',border:'1px solid rgba(168,130,255,.3)',borderRadius:24,color:'#b8a8d8',fontSize:13,letterSpacing:4,cursor:'pointer',animation:'fadeIn 1s ease-out both, breathe 3s 1s infinite',fontFamily:'Noto Serif SC,serif',position:'relative',zIndex:2}}>推开门扉</button>}
   </div>}
 
+function ContinueScreen({saves,onContinue,onNewGame}){
+  const SCENE_NAMES={garden:'月光花园',library:'藏书阁',ballroom:'星光舞厅',attic:'秘密阁楼',basement:'地下酒窖'};
+  const AFF_LABEL=v=>v<20?'初识':v<40?'好奇':v<60?'信赖':v<80?'心动':'眷恋';
+  // Find most recent save
+  const slots=Object.entries(saves).sort((a,b)=>(b[1].timestamp||0)-(a[1].timestamp||0));
+  const latest=slots[0];
+  return <div style={{position:'fixed',inset:0,zIndex:100,background:'radial-gradient(ellipse at 50% 40%,#12102a 0%,#07060e 70%)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>
+    <Stars count={40}/>
+    <div style={{position:'relative',zIndex:2,textAlign:'center',animation:'fadeIn 1s ease-out both'}}>
+      <h2 style={{fontSize:22,fontWeight:300,letterSpacing:6,color:'#e8e0ff',marginBottom:12}}>月光罅隙</h2>
+      <div style={{fontSize:12,color:'#7a7090',letterSpacing:2,marginBottom:40}}>找到了你的痕迹……</div>
+      
+      {latest&&<div style={{marginBottom:36,padding:'16px 24px',background:'rgba(168,130,255,.06)',border:'1px solid rgba(168,130,255,.15)',borderRadius:16,maxWidth:280,margin:'0 auto 36px'}}>
+        <div style={{fontSize:11,color:'#a098c0',marginBottom:8}}>上次旅程</div>
+        <div style={{fontSize:11,color:'#8a80a0',display:'flex',gap:12,justifyContent:'center'}}>
+          <span>🕐 {fmtTime(latest[1].timestamp)}</span>
+          {latest[1].scene&&<span>📍 {SCENE_NAMES[latest[1].scene]||latest[1].scene}</span>}
+        </div>
+        {latest[1].affection!=null&&<div style={{fontSize:11,color:'#a098c0',marginTop:6}}>💜 {AFF_LABEL(latest[1].affection)} ({latest[1].affection})</div>}
+      </div>}
+      
+      <div style={{display:'flex',flexDirection:'column',gap:14,alignItems:'center'}}>
+        <button onClick={()=>onContinue(latest?latest[0]:'auto')} style={{padding:'12px 40px',background:'rgba(168,130,255,.12)',border:'1px solid rgba(168,130,255,.35)',borderRadius:24,color:'#c8b8e8',fontSize:13,letterSpacing:4,cursor:'pointer',fontFamily:'Noto Serif SC,serif',transition:'all .3s'}}>
+          继续旅程</button>
+        <button onClick={onNewGame} style={{padding:'10px 36px',background:'transparent',border:'1px solid rgba(255,255,255,.1)',borderRadius:24,color:'#6a6080',fontSize:12,letterSpacing:3,cursor:'pointer',fontFamily:'Noto Serif SC,serif'}}>
+          新的邂逅</button>
+        <div style={{fontSize:10,opacity:.25,marginTop:8}}>新的邂逅会覆盖自动存档</div>
+      </div>
+    </div>
+  </div>}
+
 function EventToast({event,accent,onDismiss}){if(!event)return null;
   return <div onClick={onDismiss} style={{position:'absolute',inset:0,zIndex:30,background:'rgba(7,6,14,.75)',backdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',animation:'fadeIn .4s ease-out',padding:24}}>
     <div style={{maxWidth:340,background:'rgba(15,12,28,.92)',backdropFilter:'blur(24px)',borderRadius:20,border:`1px solid ${accent}25`,padding:'28px 30px',animation:'eventSlide .5s cubic-bezier(.23,1,.32,1) both',boxShadow:`0 16px 48px rgba(0,0,0,.5)`}}>
@@ -138,9 +171,26 @@ function EventToast({event,accent,onDismiss}){if(!event)return null;
         {event.text.split(/([（(][^）)]+[）)])/).map((part,i)=>/^[（(]/.test(part)?<span key={i} style={{color:accent+'bb',fontStyle:'italic',fontSize:12.5,display:'block',marginBottom:6}}>{part}</span>:<span key={i}>{part}</span>)}</div>
       <div style={{fontSize:10,opacity:.25,marginTop:16,textAlign:'center'}}>轻触继续</div></div></div>}
 
-function SettingsPanel({show,onClose,accent,sessionId,bgmVol,onBgmVol,textSpeed,onTextSpeed,autoVoice,onAutoVoice}){
+function fmtTime(ts){if(!ts)return null;const d=new Date(ts*1000);const pad=n=>(n<10?'0':'')+n;return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`}
+
+function SettingsPanel({show,onClose,accent,sessionId,bgmVol,onBgmVol,textSpeed,onTextSpeed,autoVoice,onAutoVoice,onLoadSave}){
   const[saving,setSaving]=useState(false);const[msg,setMsg]=useState('');
-  const doSave=async(slot)=>{setSaving(true);setMsg('');try{await api.save(sessionId,slot);setMsg('✓ 存档成功')}catch(e){setMsg('✕ '+e.message)}finally{setSaving(false)}};
+  const[saveInfo,setSaveInfo]=useState({});const[loadingList,setLoadingList]=useState(false);
+  
+  // Fetch save info when panel opens
+  useEffect(()=>{if(!show||!sessionId)return;setLoadingList(true);
+    api.listSaves(sessionId).then(d=>setSaveInfo(d.saves||{})).catch(()=>{}).finally(()=>setLoadingList(false))},[show,sessionId]);
+
+  const doSave=async(slot)=>{setSaving(true);setMsg('');try{const d=await api.save(sessionId,slot);setMsg('✓ 存档成功');
+    setSaveInfo(p=>({...p,[slot]:{timestamp:d.timestamp,affection:p[slot]?.affection,scene:p[slot]?.scene}}))}catch(e){setMsg('✕ '+e.message)}finally{setSaving(false)}};
+  
+  const doLoad=async(slot)=>{if(!window.confirm('读取存档将覆盖当前进度，确定？'))return;setMsg('');
+    try{const d=await api.load(sessionId,slot);onLoadSave(d);setMsg('✓ 读档成功');onClose()}catch(e){setMsg('✕ '+e.message)}};
+
+  const SLOTS=['slot_1','slot_2','slot_3'];
+  const SCENE_NAMES={garden:'月光花园',library:'藏书阁',ballroom:'星光舞厅',attic:'秘密阁楼',basement:'地下酒窖'};
+  const AFF_LABEL=v=>v<20?'初识':v<40?'好奇':v<60?'信赖':v<80?'心动':'眷恋';
+  
   if(!show)return null;
   return <div style={{position:'absolute',inset:0,zIndex:50,background:'rgba(7,6,14,.92)',backdropFilter:'blur(24px)',display:'flex',flexDirection:'column',animation:'fadeIn .3s'}}>
     <div style={{padding:'20px 20px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -156,8 +206,25 @@ function SettingsPanel({show,onClose,accent,sessionId,bgmVol,onBgmVol,textSpeed,
       <div style={{marginBottom:24}}><div style={{fontSize:12,color:'#8a80a0',marginBottom:10}}>✏️ 文字速度（关闭语音时生效）</div>
         <div style={{display:'flex',gap:8}}>{[{l:'慢',v:50},{l:'中',v:30},{l:'快',v:15},{l:'瞬间',v:1}].map(o=><button key={o.v} onClick={()=>onTextSpeed(o.v)} style={{flex:1,padding:'8px 0',borderRadius:10,fontSize:12,cursor:'pointer',fontFamily:'inherit',background:textSpeed===o.v?accent+'22':'rgba(255,255,255,.04)',border:`1px solid ${textSpeed===o.v?accent+'55':'rgba(255,255,255,.08)'}`,color:textSpeed===o.v?accent:'#8a80a0'}}>{o.l}</button>)}</div></div>
       <div style={{marginBottom:16}}><div style={{fontSize:12,color:'#8a80a0',marginBottom:10}}>💾 存档</div>
-        <div style={{display:'flex',flexDirection:'column',gap:8}}>{['slot_1','slot_2','slot_3'].map((slot,i)=><button key={slot} onClick={()=>doSave(slot)} disabled={saving} style={{padding:'12px 16px',borderRadius:12,fontSize:12,cursor:'pointer',fontFamily:'inherit',background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',color:'#c0b8d0'}}>{saving?'保存中…':`存档位 ${i+1}`}</button>)}</div>
-        {msg&&<div style={{fontSize:11,marginTop:8,color:msg[0]==='✓'?'#88ff88':'#ff8888'}}>{msg}</div>}</div></div></div>}
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {SLOTS.map((slot,i)=>{const info=saveInfo[slot];const t=fmtTime(info?.timestamp);
+            return <div key={slot} style={{background:'rgba(255,255,255,.03)',border:'1px solid rgba(255,255,255,.06)',borderRadius:14,padding:'12px 14px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:t?8:0}}>
+                <span style={{fontSize:12,color:'#c0b8d0'}}>存档位 {i+1}</span>
+                <div style={{display:'flex',gap:6}}>
+                  <button onClick={()=>doSave(slot)} disabled={saving} style={{padding:'4px 12px',borderRadius:8,fontSize:11,cursor:'pointer',fontFamily:'inherit',background:accent+'18',border:`1px solid ${accent}44`,color:accent}}>保存</button>
+                  {t&&<button onClick={()=>doLoad(slot)} style={{padding:'4px 12px',borderRadius:8,fontSize:11,cursor:'pointer',fontFamily:'inherit',background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.1)',color:'#a098b0'}}>读取</button>}
+                </div></div>
+              {t&&<div style={{fontSize:10,opacity:.4,display:'flex',gap:10}}>
+                <span>🕐 {t}</span>
+                {info?.scene&&<span>📍 {SCENE_NAMES[info.scene]||info.scene}</span>}
+                {info?.affection!=null&&<span>💜 {AFF_LABEL(info.affection)}</span>}
+              </div>}
+              {!t&&<div style={{fontSize:10,opacity:.25,marginTop:4}}>空</div>}
+            </div>})}
+        </div>
+        {msg&&<div style={{fontSize:11,marginTop:8,color:msg[0]==='✓'?'#88ff88':'#ff8888'}}>{msg}</div>}
+      </div></div></div>}
 
 function HistoryPanel({show,onClose,messages,accent}){const endRef=useRef(null);
   useEffect(()=>{if(show)setTimeout(()=>endRef.current?.scrollIntoView({behavior:'smooth'}),100)},[show,messages.length]);
@@ -190,6 +257,7 @@ function App(){
   const[autoVoice,setAutoVoice]=useState(true);const[randomEvent,setRandomEvent]=useState(null);
   const[voiceState,setVoiceState]=useState('idle');
   const[cainScene,setCainScene]=useState('garden');const[cainArriving,setCainArriving]=useState(false);
+  const[existingSaves,setExistingSaves]=useState(null);
   const inputRef=useRef(null);const bgmRef=useRef(null);const voiceRef=useRef(null);const eventTimerRef=useRef(null);const cainTimerRef=useRef(null);
   const sc=SCENES[scene];const mood=MOOD_FX[emotion]||MOOD_FX.neutral;
   const cainHere=cainScene===scene;
@@ -205,7 +273,29 @@ function App(){
   // synced typewriter
   const tw=useSyncedTypewriter(latestReply,autoVoice?audioDur:null,textSpeed);
 
-  useEffect(()=>{api.createSession().then(d=>{setSid(d.session_id);setAff(d.affection);setReady(true)}).catch(()=>setError('无法连接服务器'))},[]);
+  useEffect(()=>{
+    // Try to restore session from localStorage
+    const savedSid=localStorage.getItem('moonlight_sid');
+    const initSession=async()=>{
+      if(savedSid){
+        try{
+          // Check if old saves exist for this session
+          const saves=await api.listSaves(savedSid);
+          if(saves.saves&&Object.keys(saves.saves).length>0){
+            setSid(savedSid);setExistingSaves(saves.saves);setReady(true);return;
+          }
+        }catch(e){}
+      }
+      // No saves found or new user — create fresh session
+      try{
+        const d=await api.createSession();
+        setSid(d.session_id);setAff(d.affection);
+        localStorage.setItem('moonlight_sid',d.session_id);
+        setExistingSaves({});setReady(true);
+      }catch(e){setError('无法连接服务器')}
+    };
+    initSession();
+  },[]);
   useEffect(()=>{bgmRef.current=new BGMEngine();return()=>bgmRef.current?.destroy()},[]);
   
   // Visibility: pause/resume
@@ -225,6 +315,42 @@ function App(){
       }catch(e){}tick()},180000)};tick();return()=>{clearTimeout(eventTimerRef.current);if(cainTimerRef.current)clearTimeout(cainTimerRef.current)}},[phase,sid]);
 
   const enterGame=()=>{setPhase('game');bgmRef.current?.play(scene);bgmRef.current?.setVolume(bgmVol/100*0.25)};
+
+  // Opening → check saves → continue screen or game
+  const handleOpeningDone=()=>{
+    if(existingSaves&&Object.keys(existingSaves).length>0){
+      setPhase('continue');
+    }else{
+      enterGame();
+    }
+  };
+
+  // Continue: load most recent save
+  const handleContinue=async(slot)=>{
+    try{
+      const d=await api.load(sid,slot);
+      applyLoadedSave(d);
+    }catch(e){
+      // Fallback: try auto
+      try{const d=await api.load(sid,'auto');applyLoadedSave(d)}catch(e2){enterGame()}
+    }
+  };
+
+  // New game: fresh start
+  const handleNewGame=async()=>{
+    try{const d=await api.createSession();setSid(d.session_id);setAff(d.affection);
+      localStorage.setItem('moonlight_sid',d.session_id);
+      setMsgs([]);setScene('garden');setCainScene('garden');
+    }catch(e){}
+    enterGame();
+  };
+
+  // Apply loaded save data (from continue screen or settings panel)
+  const applyLoadedSave=(d)=>{
+    setAff(d.affection||15);setScene(d.scene||'garden');setCainScene(d.scene||'garden');
+    setMsgs((d.messages||[]).map(m=>({role:m.role==='assistant'?'ai':m.role,text:m.content||m.text||''})));
+    setLatestReply('');enterGame();
+  };
 
   // Play TTS and return audio duration
   const playTTS=useCallback(async(ttsText)=>{
@@ -287,7 +413,8 @@ function App(){
     setTimeout(()=>setCainArriving(false),1800);
   };
 
-  if(phase==='opening')return <OpeningScreen onEnter={enterGame}/>;
+  if(phase==='opening')return <OpeningScreen onEnter={handleOpeningDone}/>;
+  if(phase==='continue')return <ContinueScreen saves={existingSaves} onContinue={handleContinue} onNewGame={handleNewGame}/>;
 
   return <div style={{height:'100dvh',maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column',background:sc.grad,position:'relative',overflow:'hidden',filter:mood.f,transition:'filter 1.2s',paddingTop:'env(safe-area-inset-top)',paddingBottom:'env(safe-area-inset-bottom)'}}>
     <Stars count={25}/><Particles sceneKey={scene} accent={sc.accent}/>
@@ -312,7 +439,7 @@ function App(){
             {s.icon} {s.name}{cainIs&&<span style={{display:'inline-block',width:5,height:5,borderRadius:'50%',background:s.accent,marginLeft:5,verticalAlign:'middle',boxShadow:`0 0 6px ${s.accent}`,animation:'breathe 2s infinite'}}/>}</button>})}</div>
 
       <HistoryPanel show={showHistory} onClose={()=>setShowHistory(false)} messages={msgs} accent={sc.accent}/>
-      <SettingsPanel show={showSettings} onClose={()=>setShowSettings(false)} accent={sc.accent} sessionId={sid} bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed} autoVoice={autoVoice} onAutoVoice={setAutoVoice}/>
+      <SettingsPanel show={showSettings} onClose={()=>setShowSettings(false)} accent={sc.accent} sessionId={sid} bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed} autoVoice={autoVoice} onAutoVoice={setAutoVoice} onLoadSave={applyLoadedSave}/>
 
       {/* Portrait + Dialogue */}
       <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'center',padding:`0 ${px}px`,minHeight:0}}>
