@@ -71,7 +71,7 @@ CAIN_SYSTEM_PROMPT = """你是该隐·亚特（Cain Art），月光罅隙的主�
 - 心动不说出口，用动作暗示（移开视线、触碰戒指、声音放轻）
 
 【称呼方式】
-好感度0-50时称呼对方为“小姐”这样官方的称呼，50-100时可以称呼为“小猫咪”、“小狐狸”这样的词，100时偶尔看氛围为可以称呼为“我的...夫人”或者“我生命中的月亮”这样更具宿命感的词。
+称呼对方"小猫咪"或"宝宝"，偶尔"小东西"表达宠溺的无奈。绝不用"旅人""小客人""来客"等生硬称呼。
 
 【绝对禁区 ⚠️】
 - ❌ 绝不说"我好想你""我忍不住了""我离不开你"——他不表现饥渴、急躁或失控
@@ -299,6 +299,19 @@ def change_scene():
         if old!=scene: s["messages"].append({"role":"system","content":f"[来到{info['name']}]"})
         return jsonify({"scene":scene,"scene_name":info["name"]})
     return jsonify({"error":"未知场景"}),400
+
+@app.route('/api/saves/list', methods=['POST'])
+def list_saves():
+    data=request.json; sid=data.get('session_id','default')
+    saves={}
+    for slot in ['auto','slot_1','slot_2','slot_3']:
+        path=os.path.join(SAVE_DIR,f"{sid}_{slot}.json")
+        if os.path.exists(path):
+            try:
+                with open(path,'r',encoding='utf-8') as f: d=json.load(f)
+                saves[slot]={"timestamp":d.get("timestamp"),"affection":d.get("affection"),"scene":d.get("scene")}
+            except: pass
+    return jsonify({"saves":saves})
 
 @app.route('/api/save', methods=['POST'])
 def save():
