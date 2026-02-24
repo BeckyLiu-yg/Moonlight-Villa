@@ -21,6 +21,7 @@ body{font-family:'Noto Serif SC','Georgia',serif}
 @keyframes sceneIn{from{opacity:0;transform:scale(1.05)}to{opacity:1;transform:scale(1)}}
 @keyframes starTwinkle{0%,100%{opacity:.2;transform:scale(.8)}50%{opacity:.8;transform:scale(1.2)}}
 @keyframes eventSlide{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes cainArrive{0%{opacity:0;transform:scale(.9) translateY(10px);filter:blur(8px)}60%{opacity:.8;transform:scale(1.02) translateY(-2px);filter:blur(1px)}100%{opacity:1;transform:scale(1) translateY(0);filter:blur(0)}}
 .fade-in{animation:fadeIn .5s ease-out both}
 .scene-transition{animation:sceneIn .8s ease-out both}
 .hide-scroll::-webkit-scrollbar{display:none}.hide-scroll{-ms-overflow-style:none;scrollbar-width:none}
@@ -188,8 +189,10 @@ function App(){
   const[bgmVol,setBgmVol]=useState(25);const[textSpeed,setTextSpeed]=useState(30);
   const[autoVoice,setAutoVoice]=useState(true);const[randomEvent,setRandomEvent]=useState(null);
   const[voiceState,setVoiceState]=useState('idle');
-  const inputRef=useRef(null);const bgmRef=useRef(null);const voiceRef=useRef(null);const eventTimerRef=useRef(null);
+  const[cainScene,setCainScene]=useState('garden');const[cainArriving,setCainArriving]=useState(false);
+  const inputRef=useRef(null);const bgmRef=useRef(null);const voiceRef=useRef(null);const eventTimerRef=useRef(null);const cainTimerRef=useRef(null);
   const sc=SCENES[scene];const mood=MOOD_FX[emotion]||MOOD_FX.neutral;
+  const cainHere=cainScene===scene;
   const hasSpoken=msgs.some(m=>m.role==='ai');
 
   // responsive
@@ -213,13 +216,13 @@ function App(){
   useEffect(()=>{if(phase==='game')bgmRef.current?.play(scene)},[scene,phase]);
   useEffect(()=>{bgmRef.current?.setVolume(bgmVol/100*0.25)},[bgmVol]);
 
-  // Random event: 3 minutes — only show as toast overlay, never in chat
+  // Random event: 3 minutes — only when Cain is in current scene
   useEffect(()=>{if(phase!=='game'||!sid)return;
     const tick=()=>{eventTimerRef.current=setTimeout(async()=>{
-      if(loading||showSettings||showHistory||randomEvent){tick();return}
+      if(loading||showSettings||showHistory||randomEvent||cainScene!==scene){tick();return}
       try{const d=await api.randomEvent(sid);setRandomEvent(d);setEmotion(d.emotion||'neutral');
         if(autoVoice&&d.tts_text){try{const blob=await api.ttsBlob(d.tts_text);const url=URL.createObjectURL(blob);const a=new Audio(url);a.onended=()=>URL.revokeObjectURL(url);a.play().catch(()=>{})}catch(e){}}
-      }catch(e){}tick()},180000)};tick();return()=>clearTimeout(eventTimerRef.current)},[phase,sid]);
+      }catch(e){}tick()},180000)};tick();return()=>{clearTimeout(eventTimerRef.current);if(cainTimerRef.current)clearTimeout(cainTimerRef.current)}},[phase,sid]);
 
   const enterGame=()=>{setPhase('game');bgmRef.current?.play(scene);bgmRef.current?.setVolume(bgmVol/100*0.25)};
 
@@ -270,6 +273,22 @@ function App(){
     }catch(e){setError(e.message);setMsgs(p=>[...p,{role:'system',text:'⚠ '+e.message}])}finally{setLoading(false)}};
 
   const switchScene=async(key)=>{if(key===scene||!sid)return;setScene(key);setSceneKey(k=>k+1);
+    if(cainTimerRef.current){clearTimeout(cainTimerRef.current);cainTimerRef.current=null}
+    setCainArriving(false);
+    // Cain location logic: 35% follows instantly (with arrival anim), 65% arrives after delay
+    if(cainScene!==key){
+      const followNow=Math.random()<0.35;
+      if(followNow){
+        // Brief delay then arrive with animation
+        cainTimerRef.current=setTimeout(()=>{setCainArriving(true);setCainScene(key);
+          setTimeout(()=>setCainArriving(false),1800)},1200);
+      }else{
+        // Arrive after 12-25 seconds
+        const delay=12000+Math.random()*13000;
+        cainTimerRef.current=setTimeout(()=>{setCainArriving(true);setCainScene(key);
+          setTimeout(()=>setCainArriving(false),1800)},delay);
+      }
+    }
     try{const d=await api.changeScene(sid,key);setMsgs(p=>[...p,{role:'system',text:`── ${d.scene_name} ──`}])}catch(e){}};
 
   if(phase==='opening')return <OpeningScreen onEnter={enterGame}/>;
@@ -291,9 +310,10 @@ function App(){
 
       {/* Scenes */}
       <div className="hide-scroll" style={{display:'flex',gap:6,padding:`2px ${px}px 8px`,overflowX:'auto'}}>
-        {Object.entries(SCENES).map(([k,s])=>{const active=scene===k;
-          return <button key={k} onClick={()=>switchScene(k)} style={{flexShrink:0,whiteSpace:'nowrap',padding:'5px 11px',borderRadius:14,fontSize:11,minHeight:34,cursor:'pointer',fontFamily:'inherit',transition:'all .35s',
-            border:`1px solid ${active?s.accent+'66':'rgba(255,255,255,.06)'}`,background:active?s.accent+'15':'rgba(255,255,255,.03)',color:active?s.accent:'#706880'}}>{s.icon} {s.name}</button>})}</div>
+        {Object.entries(SCENES).map(([k,s])=>{const active=scene===k;const cainIs=cainScene===k;
+          return <button key={k} onClick={()=>switchScene(k)} style={{flexShrink:0,whiteSpace:'nowrap',padding:'5px 11px',borderRadius:14,fontSize:11,minHeight:34,cursor:'pointer',fontFamily:'inherit',transition:'all .35s',position:'relative',
+            border:`1px solid ${active?s.accent+'66':'rgba(255,255,255,.06)'}`,background:active?s.accent+'15':'rgba(255,255,255,.03)',color:active?s.accent:'#706880'}}>
+            {s.icon} {s.name}{cainIs&&<span style={{display:'inline-block',width:5,height:5,borderRadius:'50%',background:s.accent,marginLeft:5,verticalAlign:'middle',boxShadow:`0 0 6px ${s.accent}`,animation:'breathe 2s infinite'}}/>}</button>})}</div>
 
       <HistoryPanel show={showHistory} onClose={()=>setShowHistory(false)} messages={msgs} accent={sc.accent}/>
       <SettingsPanel show={showSettings} onClose={()=>setShowSettings(false)} accent={sc.accent} sessionId={sid} bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed} autoVoice={autoVoice} onAutoVoice={setAutoVoice}/>
@@ -301,8 +321,9 @@ function App(){
       {/* Portrait + Dialogue */}
       <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'center',padding:`0 ${px}px`,minHeight:0}}>
         
-        {/* Portrait: only show if Cain has spoken AND not hidden */}
-        {hasSpoken&&!hidePortrait&&<div style={{display:'flex',justifyContent:'center',alignItems:'center',minHeight:short?140:sm?160:210,transition:'min-height .4s'}}>
+        {/* Portrait: only show when Cain is in this scene */}
+        {cainHere&&hasSpoken&&!hidePortrait&&<div style={{display:'flex',justifyContent:'center',alignItems:'center',minHeight:short?140:sm?160:210,transition:'min-height .4s',
+          animation:cainArriving?'cainArrive 1.6s cubic-bezier(.23,1,.32,1) both':'none'}}>
           <div style={{position:'relative'}}>
             <div style={{position:'absolute',inset:-20,borderRadius:'50%',background:`radial-gradient(circle,${sc.accent}12 0%,transparent 70%)`,animation:'breathe 4s infinite',transition:'background 1s'}}/>
             <div style={{width:portrait,height:portrait,borderRadius:'50%',overflow:'hidden',position:'relative',border:`2px solid ${sc.accent}33`,boxShadow:`0 0 40px ${sc.accent}18, inset 0 0 30px rgba(0,0,0,.4)`,transition:'all .5s'}}>
@@ -311,18 +332,28 @@ function App(){
             <div style={{position:'absolute',bottom:-10,left:'50%',transform:'translateX(-50%)',background:'rgba(7,6,14,.85)',backdropFilter:'blur(12px)',padding:'3px 14px',borderRadius:12,fontSize:11,letterSpacing:2,whiteSpace:'nowrap',border:`1px solid ${sc.accent}28`,color:sc.accent,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>Cain · {EMOTION_MAP[emotion]||'平静'}</div>
           </div></div>}
 
+        {/* Cain not here: atmospheric empty scene */}
+        {!cainHere&&hasSpoken&&!hidePortrait&&<div style={{display:'flex',justifyContent:'center',alignItems:'center',minHeight:short?140:sm?160:210,flexDirection:'column',gap:12}}>
+          <div style={{width:portrait*0.6,height:portrait*0.6,borderRadius:'50%',border:`1px dashed ${sc.accent}20`,display:'flex',alignItems:'center',justifyContent:'center',
+            background:`radial-gradient(circle,${sc.accent}06 0%,transparent 70%)`}}>
+            <span style={{fontSize:24,opacity:.2}}>✦</span></div>
+          <div style={{textAlign:'center',color:'#6a6080',fontSize:12,letterSpacing:1,lineHeight:1.8,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>
+            <div style={{opacity:.5}}>该隐不在这里</div>
+            <div style={{opacity:.3,fontSize:11,marginTop:4}}>也许他会被你吸引过来……</div></div>
+        </div>}
+
         {/* Dialogue */}
         <div style={{marginTop:hasSpoken&&!hidePortrait?18:0,background:'rgba(12,11,20,.65)',backdropFilter:'blur(24px)',borderRadius:18,border:`1px solid ${sc.accent}18`,padding:sm?'14px 16px':'18px 22px',minHeight:short?80:100,position:'relative',flex:hidePortrait||!hasSpoken?1:'none',overflow:'auto',boxShadow:'inset 0 1px 0 rgba(255,255,255,.04), 0 8px 32px rgba(0,0,0,.3)'}}>
           <div style={{position:'absolute',top:8,left:12,fontSize:8,opacity:.15,color:sc.accent}}>✦</div>
           <div style={{position:'absolute',bottom:8,right:12,fontSize:8,opacity:.15,color:sc.accent}}>✦</div>
 
-          {hidePortrait&&hasSpoken&&<div style={{width:30,height:30,borderRadius:'50%',overflow:'hidden',border:`1px solid ${sc.accent}33`,float:'left',marginRight:10,marginTop:2}}>
+          {hidePortrait&&hasSpoken&&cainHere&&<div style={{width:30,height:30,borderRadius:'50%',overflow:'hidden',border:`1px solid ${sc.accent}33`,float:'left',marginRight:10,marginTop:2}}>
             <img src="/static/cain.jpg" alt="" style={{width:'135%',height:'135%',objectFit:'cover',objectPosition:'50% 18%',position:'relative',top:'-5%',left:'-17%'}}/></div>}
 
           {error&&!loading&&msgs.length===0&&<div style={{color:'#ff7070',fontSize:12,textAlign:'center',padding:12}}>⚠ {error}</div>}
           {loading&&<div style={{fontSize:fs,lineHeight:2,color:'#9088a0',fontStyle:'italic'}}><span style={{opacity:.5}}>Cain 正在思考</span><span className="loading-dots" style={{opacity:.5}}/></div>}
           
-          {!loading&&latestReply&&<div onClick={!tw.done?tw.skip:undefined} style={{cursor:!tw.done?'pointer':'default'}}>
+          {!loading&&latestReply&&cainHere&&<div onClick={!tw.done?tw.skip:undefined} style={{cursor:!tw.done?'pointer':'default'}}>
             <div style={{fontSize:fs,lineHeight:2,color:'#e4daf0',letterSpacing:.3}}>
               {tw.display.split(/([（(][^）)]+[）)]|\*[^*]+\*)/).map((part,i)=>/^[（(*]/.test(part)?<span key={i} style={{color:sc.accent+'cc',fontStyle:'italic',fontSize:fs-1}}>{part.replace(/^\*|\*$/g,'')}</span>:<span key={i}>{part}</span>)}
               {!tw.done&&<span className="cursor"/>}</div>
@@ -332,10 +363,12 @@ function App(){
               {voiceState==='idle'&&!autoVoice&&<button onClick={()=>{const last=msgs.filter(m=>m.role==='ai').pop();if(last)playTTS(last.text)}} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>🔊 播放</button>}
             </div>}</div>}
 
-          {!loading&&!latestReply&&!hasSpoken&&ready&&<div style={{fontSize:fs,lineHeight:2.2,color:'#7a7090',textAlign:'center',padding:'20px 0'}}>
+          {!loading&&!latestReply&&!hasSpoken&&ready&&cainHere&&<div style={{fontSize:fs,lineHeight:2.2,color:'#7a7090',textAlign:'center',padding:'20px 0'}}>
             <div style={{fontSize:16,marginBottom:8,animation:'float 3s infinite',color:sc.accent+'88'}}>✦</div>
             <div style={{fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",fontSize:14,letterSpacing:1}}>月光如水，罅隙的主人正望向你……</div>
             <div style={{fontSize:11,opacity:.5,marginTop:6}}>试着和 Cain 说些什么吧</div></div>}
+          {!loading&&!cainHere&&hasSpoken&&<div style={{fontSize:fs,lineHeight:2.2,color:'#5a5070',textAlign:'center',padding:'30px 0',fontStyle:'italic'}}>
+            <div style={{fontSize:14,opacity:.4,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",letterSpacing:1}}>只有月光和寂静……</div></div>}
           {!ready&&!error&&<div style={{fontSize:fs,color:'#7a7090',textAlign:'center'}}>正在连接<span className="loading-dots"/></div>}
         </div></div>
 
@@ -343,12 +376,12 @@ function App(){
       <div style={{padding:`8px ${px}px 10px`,paddingBottom:`calc(10px + env(safe-area-inset-bottom))`}}>
         <div style={{display:'flex',gap:8,alignItems:'center',background:'rgba(12,11,20,.55)',backdropFilter:'blur(18px)',borderRadius:22,border:`1px solid ${inputFocused?sc.accent+'40':'rgba(255,255,255,.06)'}`,padding:'6px 6px 6px 18px',transition:'all .3s',boxShadow:inputFocused?`0 0 20px ${sc.accent}10`:'none'}}>
           <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}}
-            onFocus={()=>setInputFocused(true)} onBlur={()=>setInputFocused(false)} placeholder={loading?'Cain 正在回应…':'对 Cain 说点什么…'} disabled={loading||!ready}
-            style={{flex:1,background:'transparent',border:'none',outline:'none',color:'#e8e0f0',fontSize:fs,fontFamily:'inherit',lineHeight:1.4}}/>
-          <button onClick={send} disabled={loading||!input.trim()||!ready} style={{width:40,height:40,borderRadius:16,border:'none',
-            background:input.trim()&&!loading?`linear-gradient(135deg,${sc.accent},${sc.accent}88)`:'rgba(255,255,255,.04)',color:input.trim()&&!loading?'#fff':'#444',fontSize:16,
-            cursor:input.trim()&&!loading?'pointer':'default',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .3s',flexShrink:0,
-            boxShadow:input.trim()&&!loading?`0 4px 16px ${sc.accent}33`:'none'}}>➤</button></div></div>
+            onFocus={()=>setInputFocused(true)} onBlur={()=>setInputFocused(false)} placeholder={!cainHere?'该隐不在这里……':loading?'Cain 正在回应…':'对 Cain 说点什么…'} disabled={loading||!ready||!cainHere}
+            style={{flex:1,background:'transparent',border:'none',outline:'none',color:cainHere?'#e8e0f0':'#4a4060',fontSize:fs,fontFamily:'inherit',lineHeight:1.4}}/>
+          <button onClick={send} disabled={loading||!input.trim()||!ready||!cainHere} style={{width:40,height:40,borderRadius:16,border:'none',
+            background:input.trim()&&!loading&&cainHere?`linear-gradient(135deg,${sc.accent},${sc.accent}88)`:'rgba(255,255,255,.04)',color:input.trim()&&!loading&&cainHere?'#fff':'#444',fontSize:16,
+            cursor:input.trim()&&!loading&&cainHere?'pointer':'default',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .3s',flexShrink:0,
+            boxShadow:input.trim()&&!loading&&cainHere?`0 4px 16px ${sc.accent}33`:'none'}}>➤</button></div></div>
     </div></div>}
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
