@@ -380,8 +380,6 @@ def tts():
             reqid = str(uuid.uuid4())
             payload = {
                 "app": {
-                    "appid": VOLC_TTS_APPID,
-                    "token": VOLC_TTS_TOKEN,
                     "cluster": VOLC_TTS_CLUSTER
                 },
                 "user": {"uid": "moonlight_villa"},
@@ -397,7 +395,7 @@ def tts():
                 }
             }
             headers = {
-                "Authorization": f"Bearer;{VOLC_TTS_TOKEN}",
+                "x-api-key": VOLC_TTS_TOKEN,
                 "Content-Type": "application/json"
             }
             
@@ -458,8 +456,6 @@ def tts_debug():
         reqid = str(uuid.uuid4())
         payload = {
             "app": {
-                "appid": VOLC_TTS_APPID,
-                "token": VOLC_TTS_TOKEN,
                 "cluster": VOLC_TTS_CLUSTER
             },
             "user": {"uid": "debug"},
@@ -475,7 +471,7 @@ def tts_debug():
             }
         }
         headers = {
-            "Authorization": f"Bearer;{VOLC_TTS_TOKEN}",
+            "x-api-key": VOLC_TTS_TOKEN,
             "Content-Type": "application/json"
         }
         r = http_req.post(VOLC_TTS_URL, headers=headers, json=payload, timeout=15)
