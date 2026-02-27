@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0a0a12">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>月光罅隙</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500;600&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&display=swap" rel="stylesheet">
 <style>
@@ -52,12 +55,13 @@ const MOOD_FX={neutral:{f:'none'},gentle:{f:'saturate(1.1) brightness(1.04)'},pl
 const api={
   post:async(u,b)=>{const r=await fetch(API+u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});if(!r.ok){const e=await r.json().catch(()=>({error:'网络错误'}));throw new Error(e.error||'失败')}return r.json()},
   createSession:()=>api.post('/api/session',{}),
-  chat:(sid,msg,scene)=>api.post('/api/chat',{session_id:sid,message:msg,scene}),
+  auth:(name,passcode)=>api.post('/api/auth',{name,passcode}),
+  chat:(sid,msg,scene,pid)=>api.post('/api/chat',{session_id:sid,message:msg,scene,player_id:pid}),
   changeScene:(sid,scene)=>api.post('/api/scene',{session_id:sid,scene}),
   randomEvent:(sid)=>api.post('/api/random_event',{session_id:sid}),
-  save:(sid,slot)=>api.post('/api/save',{session_id:sid,slot}),
-  load:(sid,slot)=>api.post('/api/load',{session_id:sid,slot}),
-  listSaves:(sid)=>api.post('/api/saves/list',{session_id:sid}),
+  save:(sid,slot,pid)=>api.post('/api/save',{session_id:sid,slot,player_id:pid}),
+  load:(sid,slot,pid)=>api.post('/api/load',{session_id:sid,slot,player_id:pid}),
+  listSaves:(sid,pid)=>api.post('/api/saves/list',{session_id:sid,player_id:pid}),
   async ttsBlob(text){const r=await fetch(API+'/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,pre_cleaned:true})});if(!r.ok)throw new Error('TTS失败');return r.blob()},
 };
 
@@ -163,6 +167,27 @@ function ContinueScreen({saves,onContinue,onNewGame}){
     </div>
   </div>}
 
+function AuthScreen({onAuth}){
+  const[name,setName]=useState('');const[code,setCode]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
+  const submit=async()=>{if(!name.trim()||code.length!==4)return;setLoading(true);setErr('');
+    try{const d=await api.auth(name.trim(),code);onAuth(d.player_id,d.name)}catch(e){setErr(e.message)}finally{setLoading(false)}};
+  return <div style={{position:'fixed',inset:0,zIndex:100,background:'radial-gradient(ellipse at 50% 40%,#12102a 0%,#07060e 70%)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>
+    <Stars count={40}/>
+    <div style={{position:'relative',zIndex:2,textAlign:'center',animation:'fadeIn 1s ease-out both',maxWidth:300,width:'100%',padding:'0 24px'}}>
+      <h2 style={{fontSize:22,fontWeight:300,letterSpacing:6,color:'#e8e0ff',marginBottom:8}}>月光罅隙</h2>
+      <div style={{fontSize:12,color:'#7a7090',letterSpacing:2,marginBottom:36}}>告诉我你的名字，旅人……</div>
+      <div style={{marginBottom:16}}><input value={name} onChange={e=>setName(e.target.value)} placeholder="旅人名" maxLength={20}
+        style={{width:'100%',padding:'12px 16px',borderRadius:14,border:'1px solid rgba(168,130,255,.2)',background:'rgba(255,255,255,.04)',color:'#e8e0f0',fontSize:14,fontFamily:'inherit',outline:'none',textAlign:'center',letterSpacing:2,boxSizing:'border-box'}}/></div>
+      <div style={{marginBottom:6}}><input value={code} onChange={e=>{const v=e.target.value.replace(/\D/g,'').slice(0,4);setCode(v)}} placeholder="四位暗号" maxLength={4} inputMode="numeric"
+        style={{width:'100%',padding:'12px 16px',borderRadius:14,border:'1px solid rgba(168,130,255,.2)',background:'rgba(255,255,255,.04)',color:'#e8e0f0',fontSize:18,fontFamily:'inherit',outline:'none',textAlign:'center',letterSpacing:12,boxSizing:'border-box'}}/></div>
+      <div style={{fontSize:10,color:'#5a5070',marginBottom:24}}>首次输入将自动注册，再次输入验证身份</div>
+      {err&&<div style={{fontSize:11,color:'#ff8888',marginBottom:12}}>{err}</div>}
+      <button onClick={submit} disabled={loading||!name.trim()||code.length!==4}
+        style={{padding:'12px 40px',background:name.trim()&&code.length===4?'rgba(168,130,255,.12)':'rgba(255,255,255,.02)',border:`1px solid ${name.trim()&&code.length===4?'rgba(168,130,255,.35)':'rgba(255,255,255,.06)'}`,borderRadius:24,color:name.trim()&&code.length===4?'#c8b8e8':'#4a4060',fontSize:13,letterSpacing:4,cursor:name.trim()&&code.length===4?'pointer':'default',fontFamily:'Noto Serif SC,serif',transition:'all .3s'}}>
+        {loading?'正在确认…':'踏入罅隙'}</button>
+    </div>
+  </div>}
+
 function EventToast({event,accent,onDismiss}){if(!event)return null;
   return <div onClick={onDismiss} style={{position:'absolute',inset:0,zIndex:30,background:'rgba(7,6,14,.75)',backdropFilter:'blur(10px)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',animation:'fadeIn .4s ease-out',padding:24}}>
     <div style={{maxWidth:340,background:'rgba(15,12,28,.92)',backdropFilter:'blur(24px)',borderRadius:20,border:`1px solid ${accent}25`,padding:'28px 30px',animation:'eventSlide .5s cubic-bezier(.23,1,.32,1) both',boxShadow:`0 16px 48px rgba(0,0,0,.5)`}}>
@@ -173,19 +198,19 @@ function EventToast({event,accent,onDismiss}){if(!event)return null;
 
 function fmtTime(ts){if(!ts)return null;const d=new Date(ts*1000);const pad=n=>(n<10?'0':'')+n;return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`}
 
-function SettingsPanel({show,onClose,accent,sessionId,bgmVol,onBgmVol,textSpeed,onTextSpeed,autoVoice,onAutoVoice,onLoadSave}){
+function SettingsPanel({show,onClose,accent,sessionId,playerId,bgmVol,onBgmVol,textSpeed,onTextSpeed,autoVoice,onAutoVoice,onLoadSave}){
   const[saving,setSaving]=useState(false);const[msg,setMsg]=useState('');
   const[saveInfo,setSaveInfo]=useState({});const[loadingList,setLoadingList]=useState(false);
   
   // Fetch save info when panel opens
   useEffect(()=>{if(!show||!sessionId)return;setLoadingList(true);
-    api.listSaves(sessionId).then(d=>setSaveInfo(d.saves||{})).catch(()=>{}).finally(()=>setLoadingList(false))},[show,sessionId]);
+    api.listSaves(sessionId,playerId).then(d=>setSaveInfo(d.saves||{})).catch(()=>{}).finally(()=>setLoadingList(false))},[show,sessionId]);
 
-  const doSave=async(slot)=>{setSaving(true);setMsg('');try{const d=await api.save(sessionId,slot);setMsg('✓ 存档成功');
+  const doSave=async(slot)=>{setSaving(true);setMsg('');try{const d=await api.save(sessionId,slot,playerId);setMsg('✓ 存档成功');
     setSaveInfo(p=>({...p,[slot]:{timestamp:d.timestamp,affection:p[slot]?.affection,scene:p[slot]?.scene}}))}catch(e){setMsg('✕ '+e.message)}finally{setSaving(false)}};
   
   const doLoad=async(slot)=>{if(!window.confirm('读取存档将覆盖当前进度，确定？'))return;setMsg('');
-    try{const d=await api.load(sessionId,slot);onLoadSave(d);setMsg('✓ 读档成功');onClose()}catch(e){setMsg('✕ '+e.message)}};
+    try{const d=await api.load(sessionId,slot,playerId);onLoadSave(d);setMsg('✓ 读档成功');onClose()}catch(e){setMsg('✕ '+e.message)}};
 
   const SLOTS=['slot_1','slot_2','slot_3'];
   const SCENE_NAMES={garden:'月光花园',library:'藏书阁',ballroom:'星光舞厅',attic:'秘密阁楼',basement:'地下酒窖'};
@@ -242,6 +267,17 @@ function HistoryPanel({show,onClose,messages,accent}){const endRef=useRef(null);
       <div ref={endRef}/></div></div>}
 
 /* ============ MAIN ============ */
+const APP_VER = "3.4.1";
+// Clear stale localStorage from pre-auth versions (runs once on module load)
+(function(){
+  const storedVer=localStorage.getItem('moonlight_ver');
+  if(storedVer!==APP_VER){
+    localStorage.removeItem('moonlight_pid');
+    localStorage.removeItem('moonlight_name');
+    localStorage.removeItem('moonlight_sid');
+    localStorage.setItem('moonlight_ver',APP_VER);
+  }
+})();
 function App(){
   const[phase,setPhase]=useState('opening');
   const[sid,setSid]=useState(null);const[scene,setScene]=useState('garden');
@@ -258,6 +294,7 @@ function App(){
   const[voiceState,setVoiceState]=useState('idle');
   const[cainScene,setCainScene]=useState('garden');const[cainArriving,setCainArriving]=useState(false);
   const[existingSaves,setExistingSaves]=useState(null);
+  const[playerId,setPlayerId]=useState(null);const[playerName,setPlayerName]=useState('');
   const inputRef=useRef(null);const bgmRef=useRef(null);const voiceRef=useRef(null);const eventTimerRef=useRef(null);const cainTimerRef=useRef(null);
   const sc=SCENES[scene];const mood=MOOD_FX[emotion]||MOOD_FX.neutral;
   const cainHere=cainScene===scene;
@@ -274,24 +311,25 @@ function App(){
   const tw=useSyncedTypewriter(latestReply,autoVoice?audioDur:null,textSpeed);
 
   useEffect(()=>{
-    // Try to restore session from localStorage
-    const savedSid=localStorage.getItem('moonlight_sid');
     const initSession=async()=>{
-      if(savedSid){
-        try{
-          // Check if old saves exist for this session
-          const saves=await api.listSaves(savedSid);
-          if(saves.saves&&Object.keys(saves.saves).length>0){
-            setSid(savedSid);setExistingSaves(saves.saves);setReady(true);return;
-          }
-        }catch(e){}
-      }
-      // No saves found or new user — create fresh session
+      // Always create a server session for in-memory state
       try{
         const d=await api.createSession();
         setSid(d.session_id);setAff(d.affection);
-        localStorage.setItem('moonlight_sid',d.session_id);
-        setExistingSaves({});setReady(true);
+        // Check for stored auth
+        const storedPid=localStorage.getItem('moonlight_pid');
+        const storedName=localStorage.getItem('moonlight_name');
+        if(storedPid&&storedName){
+          setPlayerId(storedPid);setPlayerName(storedName);
+          // Check saves for this player
+          try{
+            const saves=await api.listSaves(d.session_id,storedPid);
+            if(saves.saves&&Object.keys(saves.saves).length>0){
+              setExistingSaves(saves.saves);
+            }else{setExistingSaves({})}
+          }catch(e){setExistingSaves({})}
+        }
+        setReady(true);
       }catch(e){setError('无法连接服务器')}
     };
     initSession();
@@ -316,23 +354,42 @@ function App(){
 
   const enterGame=()=>{setPhase('game');bgmRef.current?.play(scene);bgmRef.current?.setVolume(bgmVol/100*0.25)};
 
-  // Opening → check saves → continue screen or game
+  // Opening → check auth → auth screen or continue/game
   const handleOpeningDone=()=>{
-    if(existingSaves&&Object.keys(existingSaves).length>0){
-      setPhase('continue');
+    if(playerId){
+      // Already authenticated
+      if(existingSaves&&Object.keys(existingSaves).length>0){
+        setPhase('continue');
+      }else{
+        enterGame();
+      }
     }else{
-      enterGame();
+      setPhase('auth');
     }
+  };
+
+  // Auth completed
+  const handleAuth=async(pid,name)=>{
+    setPlayerId(pid);setPlayerName(name);
+    localStorage.setItem('moonlight_pid',pid);
+    localStorage.setItem('moonlight_name',name);
+    // Check saves
+    try{
+      const saves=await api.listSaves(sid,pid);
+      if(saves.saves&&Object.keys(saves.saves).length>0){
+        setExistingSaves(saves.saves);setPhase('continue');return;
+      }
+    }catch(e){}
+    enterGame();
   };
 
   // Continue: load most recent save
   const handleContinue=async(slot)=>{
     try{
-      const d=await api.load(sid,slot);
+      const d=await api.load(sid,slot,playerId);
       applyLoadedSave(d);
     }catch(e){
-      // Fallback: try auto
-      try{const d=await api.load(sid,'auto');applyLoadedSave(d)}catch(e2){enterGame()}
+      try{const d=await api.load(sid,'auto',playerId);applyLoadedSave(d)}catch(e2){enterGame()}
     }
   };
 
@@ -385,7 +442,7 @@ function App(){
     if(!cainHere)summonCain(scene);
     setInput('');setError(null);setMsgs(p=>[...p,{role:'user',text:msg}]);setLatestReply('');setAudioDur(null);setLoading(true);stopTTS();
     try{
-      const d=await api.chat(sid,msg,scene);
+      const d=await api.chat(sid,msg,scene,playerId);
       setEmotion(d.emotion||'neutral');setAff(d.affection||aff);
       setMsgs(p=>[...p,{role:'ai',text:d.reply,emotion:d.emotion}]);
       
@@ -414,6 +471,7 @@ function App(){
   };
 
   if(phase==='opening')return <OpeningScreen onEnter={handleOpeningDone}/>;
+  if(phase==='auth')return <AuthScreen onAuth={handleAuth}/>;
   if(phase==='continue')return <ContinueScreen saves={existingSaves} onContinue={handleContinue} onNewGame={handleNewGame}/>;
 
   return <div style={{height:'100dvh',maxWidth:480,margin:'0 auto',display:'flex',flexDirection:'column',background:sc.grad,position:'relative',overflow:'hidden',filter:mood.f,transition:'filter 1.2s',paddingTop:'env(safe-area-inset-top)',paddingBottom:'env(safe-area-inset-bottom)'}}>
@@ -439,7 +497,7 @@ function App(){
             {s.icon} {s.name}{cainIs&&<span style={{display:'inline-block',width:5,height:5,borderRadius:'50%',background:s.accent,marginLeft:5,verticalAlign:'middle',boxShadow:`0 0 6px ${s.accent}`,animation:'breathe 2s infinite'}}/>}</button>})}</div>
 
       <HistoryPanel show={showHistory} onClose={()=>setShowHistory(false)} messages={msgs} accent={sc.accent}/>
-      <SettingsPanel show={showSettings} onClose={()=>setShowSettings(false)} accent={sc.accent} sessionId={sid} bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed} autoVoice={autoVoice} onAutoVoice={setAutoVoice} onLoadSave={applyLoadedSave}/>
+      <SettingsPanel show={showSettings} onClose={()=>setShowSettings(false)} accent={sc.accent} sessionId={sid} playerId={playerId} bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed} autoVoice={autoVoice} onAutoVoice={setAutoVoice} onLoadSave={applyLoadedSave}/>
 
       {/* Portrait + Dialogue */}
       <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'center',padding:`0 ${px}px`,minHeight:0}}>
