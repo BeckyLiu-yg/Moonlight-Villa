@@ -1,22 +1,75 @@
 """
-月光罅隙 v3.3.1 - 吸血鬼摄政王人格深化版
+月光罅隙 v3.4 - 火山引擎TTS + Supabase持久化
 """
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file, send_from_directory, make_response
 from flask_cors import CORS
-import requests, json, uuid, io, re, time, os, random
+import requests as http_req, json, uuid, io, re, time, os, random, base64
 
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-624fe07b825945278cd4db6a51b08b0f")
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
-FISH_AUDIO_API_KEY = os.environ.get("FISH_AUDIO_API_KEY", "ace09915a295439b80399d494f385231")
+
+# --- Volcengine TTS (大模型语音合成 - 声音复刻ICL 2.0) ---
+VOLC_TTS_APPID = os.environ.get("VOLC_TTS_APPID", "6909792087")
+VOLC_TTS_TOKEN = os.environ.get("VOLC_TTS_TOKEN") or os.environ.get("VOLC_TTS_API_KEY", "9e3bc221-cdce-4677-8d8d-8321834fe5d0")
+VOLC_TTS_SPEAKER = os.environ.get("VOLC_TTS_SPEAKER", "S_ZzQMi3JU1")
+VOLC_TTS_URL = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
+VOLC_TTS_RESOURCE = os.environ.get("VOLC_TTS_RESOURCE", "seed-icl-2.0")
+
+# --- Fish Audio (fallback) ---
+FISH_AUDIO_API_KEY = os.environ.get("FISH_AUDIO_API_KEY", "")
 FISH_AUDIO_TTS_URL = "https://api.fish.audio/v1/tts"
 FISH_VOICE_MODEL_ID = os.environ.get("FISH_VOICE_MODEL_ID", "")
+
+# --- Supabase ---
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+
 PORT = int(os.environ.get("PORT", 5000))
 
 SAVE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'saves')
 os.makedirs(SAVE_DIR, exist_ok=True)
+
+# ============ Supabase Helper ============
+def sb(method, table, data=None, params=None):
+    """Supabase REST API call. Returns parsed JSON or None."""
+    if not SUPABASE_URL or not SUPABASE_KEY: return None
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    if params:
+        url += "?" + "&".join(f"{k}={v}" for k,v in params.items())
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    try:
+        r = http_req.request(method, url, headers=headers, json=data, timeout=10)
+        if r.status_code in (200, 201): return r.json()
+        print(f"[Supabase] {method} {table}: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"[Supabase] Error: {e}")
+    return None
+
+def sb_upsert(table, data, conflict_cols):
+    """Supabase upsert (insert or update on conflict)."""
+    if not SUPABASE_URL or not SUPABASE_KEY: return None
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation,resolution=merge-duplicates"
+    }
+    try:
+        r = http_req.post(url, headers=headers, json=data, timeout=10)
+        if r.status_code in (200, 201): return r.json()
+        print(f"[Supabase] upsert {table}: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"[Supabase] Error: {e}")
+    return None
 
 CAIN_SYSTEM_PROMPT = """你是该隐·亚特（Cain Art），月光罅隙的主人，千年血族摄政王。
 
@@ -185,9 +238,32 @@ def parse_emotion(text):
     if m: return re.sub(r'\s*\[emotion:\w+\]\s*','',text).strip(), m.group(1)
     return text, "neutral"
 
-def clean_for_tts(text):
+def convert_for_tts(text):
+    """Convert Cain's reply into TTS-friendly format for Volcengine.
+    
+    Volcengine big model TTS uses [context] to influence emotion/tone.
+    （动作描写）→ [动作描写] kept as emotion hints
+    *action* → [action] kept as emotion hints
+    """
+    # First strip emotion tags
+    text = re.sub(r'\s*\[emotion:\w+\]\s*', '', text)
+    # Convert （中文括号）to [方括号] for TTS emotion context
+    text = re.sub(r'[（(]([^）)]+)[）)]', r'[\1]', text)
+    # Convert *asterisk actions* to [brackets]
+    text = re.sub(r'\*([^*]+)\*', r'[\1]', text)
+    # Clean up excessive punctuation
+    text = re.sub(r'…+', '，', text)
+    text = re.sub(r'\.{2,}', '，', text)
+    text = re.sub(r'[，。、]{2,}', '，', text)
+    text = re.sub(r'\s+', '', text).strip()
+    text = text.strip('，。、；：！？ ')
+    return text
+
+def clean_for_tts_fallback(text):
+    """Fallback: strip all brackets for Fish Audio (no emotion support)."""
     c = re.sub(r'[（(][^）)]*[）)]', '', text)
     c = re.sub(r'\*[^*]+\*', '', c)
+    c = re.sub(r'\s*\[emotion:\w+\]\s*', '', c)
     c = re.sub(r'…+', '，', c)
     c = re.sub(r'\.{2,}', '，', c)
     c = re.sub(r'[，。、]{2,}', '，', c)
@@ -221,10 +297,22 @@ def load_game(sid, slot="auto"):
         "triggered_events":data.get("triggered_events",[])})
     return data
 
+APP_VERSION = "3.4.1"
+
 @app.route('/')
-def index(): return send_from_directory('static','index.html')
+def index():
+    resp = make_response(send_from_directory('static','index.html'))
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    resp.headers['ETag'] = APP_VERSION
+    resp.headers['X-App-Version'] = APP_VERSION
+    return resp
 @app.route('/static/<path:filename>')
-def serve_static(filename): return send_from_directory('static',filename)
+def serve_static(filename):
+    resp = make_response(send_from_directory('static',filename))
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return resp
 
 @app.route('/api/session', methods=['POST'])
 def create_session():
@@ -235,6 +323,7 @@ def create_session():
 def chat():
     data=request.json; msg=data.get('message','').strip()
     sid=data.get('session_id','default'); scene=data.get('scene')
+    pid=data.get('player_id')
     if not msg: return jsonify({"error":"消息不能为空"}),400
     s=get_session(sid)
     if scene and scene in SCENE_DESCRIPTIONS and scene!=s["scene"]:
@@ -248,7 +337,7 @@ def chat():
             api_msgs.append({"role":"user","content":m["content"]})
             api_msgs.append({"role":"assistant","content":"（了解。）"})
     try:
-        r=requests.post(DEEPSEEK_API_URL,
+        r=http_req.post(DEEPSEEK_API_URL,
             headers={"Authorization":f"Bearer {DEEPSEEK_API_KEY}","Content-Type":"application/json"},
             json={"model":"deepseek-chat","messages":api_msgs,"temperature":0.82,"max_tokens":400,
                 "top_p":0.88,"frequency_penalty":0.4,"presence_penalty":0.5},timeout=30)
@@ -258,11 +347,13 @@ def chat():
         reply,emotion=parse_emotion(raw)
         update_affection(s,msg)
         s["messages"].append({"role":"assistant","content":reply})
-        try: save_game(sid,"auto")
+        try:
+            save_game(sid,"auto")
+            if pid and SUPABASE_URL: save_game_db(pid,"auto",s)
         except: pass
         return jsonify({"reply":reply,"emotion":emotion,"affection":s["affection"],
-            "scene":s["scene"],"tts_text":clean_for_tts(reply)})
-    except requests.exceptions.Timeout: return jsonify({"error":"响应超时"}),504
+            "scene":s["scene"],"tts_text":convert_for_tts(reply)})
+    except http_req.exceptions.Timeout: return jsonify({"error":"响应超时"}),504
     except Exception as e: return jsonify({"error":str(e)}),500
 
 @app.route('/api/random_event', methods=['POST'])
@@ -271,24 +362,139 @@ def random_event():
     s=get_session(sid); event=random.choice(RANDOM_EVENTS)
     s["messages"].append({"role":"assistant","content":event["text"]})
     return jsonify({"text":event["text"],"emotion":event["emotion"],
-        "tts_text":clean_for_tts(event["text"]),"affection":s["affection"]})
+        "tts_text":convert_for_tts(event["text"]),"affection":s["affection"]})
 
 @app.route('/api/tts', methods=['POST'])
 def tts():
     data=request.json; text=data.get('text','').strip()
-    if not data.get('pre_cleaned'): text=clean_for_tts(text)
-    text=text[:250]
     if not text: return jsonify({"error":"空文本"}),400
+    
+    # Try Volcengine TTS first (with emotion context in [] brackets)
+    if VOLC_TTS_TOKEN:
+        try:
+            tts_text = text if data.get('pre_cleaned') else convert_for_tts(text)
+            tts_text = tts_text[:500]
+            if not tts_text: return jsonify({"error":"空文本"}),400
+            
+            payload = {
+                "user": {"uid": "moonlight_villa"},
+                "req_params": {
+                    "text": tts_text,
+                    "speaker": VOLC_TTS_SPEAKER,
+                    "model_type": 4,  # ICL 2.0 声音复刻
+                    "audio_params": {"format": "mp3", "sample_rate": 24000}
+                }
+            }
+            headers = {
+                "Authorization": f"Bearer;{VOLC_TTS_TOKEN}",
+                "X-Api-App-Key": VOLC_TTS_APPID,
+                "X-Api-Resource-Id": VOLC_TTS_RESOURCE,
+                "Content-Type": "application/json"
+            }
+            
+            print(f"[Volcengine TTS] speaker={VOLC_TTS_SPEAKER} resource={VOLC_TTS_RESOURCE} appid={VOLC_TTS_APPID} text_len={len(tts_text)}")
+            session = http_req.Session()
+            r = session.post(VOLC_TTS_URL, headers=headers, json=payload, stream=True, timeout=25)
+            
+            if r.status_code == 200:
+                # Collect streaming base64 audio chunks
+                audio_chunks = []
+                err_msg = None
+                for line in r.iter_lines():
+                    if not line: continue
+                    try:
+                        chunk = json.loads(line)
+                        if chunk.get("data"):
+                            audio_chunks.append(base64.b64decode(chunk["data"]))
+                        if chunk.get("code") and chunk["code"] != 0:
+                            err_msg = f"code={chunk['code']}: {chunk.get('message','')}"
+                            print(f"[Volcengine TTS] {err_msg}")
+                    except: pass
+                
+                if audio_chunks:
+                    audio_data = b"".join(audio_chunks)
+                    print(f"[Volcengine TTS] ✓ {len(audio_data)} bytes")
+                    return send_file(io.BytesIO(audio_data), mimetype='audio/mpeg')
+                else:
+                    print(f"[Volcengine TTS] No audio chunks. err={err_msg}")
+            else:
+                body = r.text[:500] if r.text else "(empty)"
+                print(f"[Volcengine TTS] HTTP {r.status_code}: {body}")
+        except Exception as e:
+            import traceback
+            print(f"[Volcengine TTS] Error: {e}\n{traceback.format_exc()}")
+    
+    # Fallback to Fish Audio (strips brackets)
+    if FISH_AUDIO_API_KEY:
+        try:
+            fish_text = clean_for_tts_fallback(text) if not data.get('pre_cleaned') else text
+            fish_text = fish_text[:250]
+            if not fish_text: return jsonify({"error":"空文本"}),400
+            payload={"text":fish_text,"format":"mp3","mp3_bitrate":64,"prosody":{"speed":1.0,"volume":0}}
+            if FISH_VOICE_MODEL_ID: payload["reference_id"]=FISH_VOICE_MODEL_ID
+            r=http_req.post(FISH_AUDIO_TTS_URL,
+                headers={"Authorization":f"Bearer {FISH_AUDIO_API_KEY}","Content-Type":"application/json"},
+                json=payload,timeout=20)
+            if r.status_code==200:
+                return send_file(io.BytesIO(r.content),mimetype='audio/mpeg')
+        except Exception as e:
+            print(f"[Fish TTS] Error: {e}")
+    
+    return jsonify({"error":"TTS 服务不可用"}),502
+
+@app.route('/api/tts-debug', methods=['GET'])
+def tts_debug():
+    """Debug endpoint to check TTS config and test"""
+    info = {
+        "appid": VOLC_TTS_APPID,
+        "speaker": VOLC_TTS_SPEAKER,
+        "resource": VOLC_TTS_RESOURCE,
+        "token_set": bool(VOLC_TTS_TOKEN),
+        "token_preview": VOLC_TTS_TOKEN[:8]+"..." if VOLC_TTS_TOKEN else None,
+        "fish_fallback": bool(FISH_AUDIO_API_KEY),
+        "supabase": bool(SUPABASE_URL and SUPABASE_KEY),
+    }
+    # Quick test with a short text
+    test_text = "测试"
     try:
-        payload={"text":text,"format":"mp3","mp3_bitrate":64,
-            "prosody":{"speed":1.0,"volume":0}}
-        if FISH_VOICE_MODEL_ID: payload["reference_id"]=FISH_VOICE_MODEL_ID
-        r=requests.post(FISH_AUDIO_TTS_URL,
-            headers={"Authorization":f"Bearer {FISH_AUDIO_API_KEY}","Content-Type":"application/json"},
-            json=payload,timeout=20)
-        if r.status_code!=200: return jsonify({"error":f"TTS {r.status_code}"}),502
-        return send_file(io.BytesIO(r.content),mimetype='audio/mpeg')
-    except Exception as e: return jsonify({"error":str(e)}),500
+        payload = {
+            "user": {"uid": "debug"},
+            "req_params": {
+                "text": test_text,
+                "speaker": VOLC_TTS_SPEAKER,
+                "model_type": 4,
+                "audio_params": {"format": "mp3", "sample_rate": 24000}
+            }
+        }
+        headers = {
+            "Authorization": f"Bearer;{VOLC_TTS_TOKEN}",
+            "X-Api-App-Key": VOLC_TTS_APPID,
+            "X-Api-Resource-Id": VOLC_TTS_RESOURCE,
+            "Content-Type": "application/json"
+        }
+        r = http_req.post(VOLC_TTS_URL, headers=headers, json=payload, stream=True, timeout=15)
+        info["test_status"] = r.status_code
+        if r.status_code == 200:
+            chunks = 0
+            errors = []
+            for line in r.iter_lines():
+                if not line: continue
+                try:
+                    chunk = json.loads(line)
+                    if chunk.get("data"): chunks += 1
+                    if chunk.get("code") and chunk["code"] != 0:
+                        errors.append(f"code={chunk['code']}: {chunk.get('message','')}")
+                except: pass
+            info["test_chunks"] = chunks
+            info["test_errors"] = errors
+            info["test_ok"] = chunks > 0 and len(errors) == 0
+        else:
+            info["test_body"] = r.text[:300]
+            info["test_ok"] = False
+    except Exception as e:
+        info["test_error"] = str(e)
+        info["test_ok"] = False
+    return jsonify(info)
 
 @app.route('/api/scene', methods=['POST'])
 def change_scene():
@@ -300,9 +506,86 @@ def change_scene():
         return jsonify({"scene":scene,"scene_name":info["name"]})
     return jsonify({"error":"未知场景"}),400
 
+# ============ Auth ============
+@app.route('/api/auth', methods=['POST'])
+def auth():
+    """Register or login with traveler name + 4-digit passcode."""
+    data=request.json
+    name=data.get('name','').strip()
+    code=data.get('passcode','').strip()
+    if not name or len(name)>20: return jsonify({"error":"旅人名须1-20字"}),400
+    if not re.match(r'^\d{4}$', code): return jsonify({"error":"暗号须为4位数字"}),400
+    
+    if SUPABASE_URL:
+        # Check if player exists
+        existing = sb("GET", "players", params={"name":f"eq.{name}","select":"id,passcode"})
+        if existing and len(existing)>0:
+            if existing[0]["passcode"] != code:
+                return jsonify({"error":"暗号不正确"}),401
+            pid = existing[0]["id"]
+        else:
+            result = sb("POST", "players", data={"name":name,"passcode":code})
+            if not result: return jsonify({"error":"注册失败"}),500
+            pid = result[0]["id"]
+        return jsonify({"player_id":pid,"name":name})
+    else:
+        # Local fallback: use name as session ID
+        return jsonify({"player_id":name,"name":name})
+
+# ============ Supabase Save/Load ============
+def save_game_db(player_id, slot, session):
+    """Save to Supabase."""
+    data = {
+        "player_id": player_id,
+        "slot": slot,
+        "affection": session["affection"],
+        "scene": session["scene"],
+        "messages": session["messages"][-60:],
+        "triggered_events": session.get("triggered_events", []),
+        "updated_at": "now()"
+    }
+    return sb_upsert("saves", data, "player_id,slot")
+
+def load_game_db(player_id, slot):
+    """Load from Supabase."""
+    result = sb("GET", "saves", params={
+        "player_id":f"eq.{player_id}",
+        "slot":f"eq.{slot}",
+        "select":"*"
+    })
+    if result and len(result)>0: return result[0]
+    return None
+
+def list_saves_db(player_id):
+    """List all saves for a player from Supabase."""
+    result = sb("GET", "saves", params={
+        "player_id":f"eq.{player_id}",
+        "select":"slot,affection,scene,updated_at"
+    })
+    saves = {}
+    if result:
+        for s in result:
+            ts = s.get("updated_at")
+            if ts:
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(ts.replace('Z','+00:00'))
+                    ts = dt.timestamp()
+                except: pass
+            saves[s["slot"]] = {"timestamp":ts,"affection":s.get("affection"),"scene":s.get("scene")}
+    return saves
+
 @app.route('/api/saves/list', methods=['POST'])
 def list_saves():
     data=request.json; sid=data.get('session_id','default')
+    pid=data.get('player_id')
+    
+    # Supabase path
+    if pid and SUPABASE_URL:
+        saves = list_saves_db(pid)
+        return jsonify({"saves":saves})
+    
+    # File fallback
     saves={}
     for slot in ['auto','slot_1','slot_2','slot_3']:
         path=os.path.join(SAVE_DIR,f"{sid}_{slot}.json")
@@ -315,19 +598,51 @@ def list_saves():
 
 @app.route('/api/save', methods=['POST'])
 def save():
-    data=request.json
+    data=request.json; sid=data.get('session_id','default')
+    pid=data.get('player_id'); slot=data.get('slot','manual')
+    s=get_session(sid)
+    
+    # Supabase path
+    if pid and SUPABASE_URL:
+        result = save_game_db(pid, slot, s)
+        if result:
+            return jsonify({"success":True,"timestamp":time.time()})
+        return jsonify({"error":"保存失败"}),500
+    
+    # File fallback
     try:
-        d=save_game(data.get('session_id','default'),data.get('slot','manual'))
+        d=save_game(sid, slot)
         return jsonify({"success":True,"timestamp":d["timestamp"]})
     except Exception as e: return jsonify({"error":str(e)}),500
 
 @app.route('/api/load', methods=['POST'])
 def load():
-    data=request.json; d=load_game(data.get('session_id','default'),data.get('slot','auto'))
+    data=request.json; sid=data.get('session_id','default')
+    pid=data.get('player_id'); slot=data.get('slot','auto')
+    
+    # Supabase path
+    if pid and SUPABASE_URL:
+        d = load_game_db(pid, slot)
+        if d:
+            # Also restore into memory session
+            s=get_session(sid)
+            s["affection"]=d.get("affection",15)
+            s["scene"]=d.get("scene","garden")
+            s["messages"]=d.get("messages",[])
+            s["triggered_events"]=d.get("triggered_events",[])
+            return jsonify({"success":True,"affection":s["affection"],"scene":s["scene"],
+                "messages":s["messages"],"events":s["triggered_events"]})
+        return jsonify({"error":"存档不存在"}),404
+    
+    # File fallback
+    d=load_game(sid, slot)
     if d: return jsonify({"success":True,"affection":d["affection"],"scene":d["scene"],
             "messages":d["messages"],"events":d.get("triggered_events",[])})
     return jsonify({"error":"存档不存在"}),404
 
 if __name__=='__main__':
-    print("🌙 月光罅隙 v3.3.1 | http://localhost:%d"%PORT)
+    print(f"🌙 月光罅隙 v{APP_VERSION} | http://localhost:{PORT}")
+    print(f"   TTS: {'Volcengine ICL2.0' if VOLC_TTS_TOKEN else ('Fish' if FISH_AUDIO_API_KEY else 'None')}")
+    print(f"   Speaker: {VOLC_TTS_SPEAKER} | AppID: {VOLC_TTS_APPID} | Resource: {VOLC_TTS_RESOURCE}")
+    print(f"   Supabase: {'✓' if SUPABASE_URL else '✕ (file fallback)'}")
     app.run(host='0.0.0.0',port=PORT,debug=os.environ.get("DEBUG","1")=="1")
