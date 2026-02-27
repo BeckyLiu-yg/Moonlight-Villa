@@ -11,12 +11,12 @@ CORS(app)
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-624fe07b825945278cd4db6a51b08b0f")
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 
-# --- Volcengine TTS (大模型语音合成 - 声音复刻ICL 2.0) ---
+# --- Volcengine TTS (声音复刻 ICL 2.0 via HTTP V1 API) ---
 VOLC_TTS_APPID = os.environ.get("VOLC_TTS_APPID", "6909792087")
 VOLC_TTS_TOKEN = os.environ.get("VOLC_TTS_TOKEN") or os.environ.get("VOLC_TTS_API_KEY", "9e3bc221-cdce-4677-8d8d-8321834fe5d0")
 VOLC_TTS_SPEAKER = os.environ.get("VOLC_TTS_SPEAKER", "S_ZzQMi3JU1")
-VOLC_TTS_URL = "https://openspeech.bytedance.com/api/v3/tts/unidirectional"
-VOLC_TTS_RESOURCE = os.environ.get("VOLC_TTS_RESOURCE", "seed-icl-2.0")
+VOLC_TTS_CLUSTER = os.environ.get("VOLC_TTS_CLUSTER", "volcano_icl")  # ICL 复刻音色用 volcano_icl
+VOLC_TTS_URL = "https://openspeech.bytedance.com/api/v1/tts"  # V1 HTTP 一次性合成
 
 # --- Fish Audio (fallback) ---
 FISH_AUDIO_API_KEY = os.environ.get("FISH_AUDIO_API_KEY", "")
@@ -239,18 +239,19 @@ def parse_emotion(text):
     return text, "neutral"
 
 def convert_for_tts(text):
-    """Convert Cain's reply into TTS-friendly format for Volcengine.
+    """Convert Cain's reply into TTS-friendly format.
     
-    Volcengine big model TTS uses [context] to influence emotion/tone.
-    （动作描写）→ [动作描写] kept as emotion hints
-    *action* → [action] kept as emotion hints
+    V1 HTTP API: strip action descriptions and emotion tags,
+    keep only the spoken dialogue.
     """
-    # First strip emotion tags
+    # Strip emotion tags
     text = re.sub(r'\s*\[emotion:\w+\]\s*', '', text)
-    # Convert （中文括号）to [方括号] for TTS emotion context
-    text = re.sub(r'[（(]([^）)]+)[）)]', r'[\1]', text)
-    # Convert *asterisk actions* to [brackets]
-    text = re.sub(r'\*([^*]+)\*', r'[\1]', text)
+    # Strip （动作描写）and (actions)
+    text = re.sub(r'[（(][^）)]*[）)]', '', text)
+    # Strip *asterisk actions*
+    text = re.sub(r'\*[^*]+\*', '', text)
+    # Strip any remaining [bracketed text]
+    text = re.sub(r'\[[^\]]*\]', '', text)
     # Clean up excessive punctuation
     text = re.sub(r'…+', '，', text)
     text = re.sub(r'\.{2,}', '，', text)
@@ -369,54 +370,51 @@ def tts():
     data=request.json; text=data.get('text','').strip()
     if not text: return jsonify({"error":"空文本"}),400
     
-    # Try Volcengine TTS first (with emotion context in [] brackets)
+    # Try Volcengine TTS first (V1 HTTP API - 声音复刻)
     if VOLC_TTS_TOKEN:
         try:
             tts_text = text if data.get('pre_cleaned') else convert_for_tts(text)
             tts_text = tts_text[:500]
             if not tts_text: return jsonify({"error":"空文本"}),400
             
+            reqid = str(uuid.uuid4())
             payload = {
+                "app": {
+                    "appid": VOLC_TTS_APPID,
+                    "token": VOLC_TTS_TOKEN,
+                    "cluster": VOLC_TTS_CLUSTER
+                },
                 "user": {"uid": "moonlight_villa"},
-                "req_params": {
+                "audio": {
+                    "voice_type": VOLC_TTS_SPEAKER,
+                    "encoding": "mp3",
+                    "speed_ratio": 1.0
+                },
+                "request": {
+                    "reqid": reqid,
                     "text": tts_text,
-                    "speaker": VOLC_TTS_SPEAKER,
-                    "model_type": 4,  # ICL 2.0 声音复刻
-                    "audio_params": {"format": "mp3", "sample_rate": 24000}
+                    "operation": "query"
                 }
             }
             headers = {
                 "Authorization": f"Bearer;{VOLC_TTS_TOKEN}",
-                "X-Api-App-Key": VOLC_TTS_APPID,
-                "X-Api-Resource-Id": VOLC_TTS_RESOURCE,
                 "Content-Type": "application/json"
             }
             
-            print(f"[Volcengine TTS] speaker={VOLC_TTS_SPEAKER} resource={VOLC_TTS_RESOURCE} appid={VOLC_TTS_APPID} text_len={len(tts_text)}")
-            session = http_req.Session()
-            r = session.post(VOLC_TTS_URL, headers=headers, json=payload, stream=True, timeout=25)
+            print(f"[Volcengine TTS] speaker={VOLC_TTS_SPEAKER} cluster={VOLC_TTS_CLUSTER} text_len={len(tts_text)}")
+            r = http_req.post(VOLC_TTS_URL, headers=headers, json=payload, timeout=25)
             
             if r.status_code == 200:
-                # Collect streaming base64 audio chunks
-                audio_chunks = []
-                err_msg = None
-                for line in r.iter_lines():
-                    if not line: continue
-                    try:
-                        chunk = json.loads(line)
-                        if chunk.get("data"):
-                            audio_chunks.append(base64.b64decode(chunk["data"]))
-                        if chunk.get("code") and chunk["code"] != 0:
-                            err_msg = f"code={chunk['code']}: {chunk.get('message','')}"
-                            print(f"[Volcengine TTS] {err_msg}")
-                    except: pass
-                
-                if audio_chunks:
-                    audio_data = b"".join(audio_chunks)
-                    print(f"[Volcengine TTS] ✓ {len(audio_data)} bytes")
+                result = r.json()
+                code = result.get("code", 0)
+                if code == 3000 and result.get("data"):
+                    # Success: decode base64 audio
+                    audio_data = base64.b64decode(result["data"])
+                    dur = result.get("addition", {}).get("duration", "?")
+                    print(f"[Volcengine TTS] ✓ {len(audio_data)} bytes, duration={dur}ms")
                     return send_file(io.BytesIO(audio_data), mimetype='audio/mpeg')
                 else:
-                    print(f"[Volcengine TTS] No audio chunks. err={err_msg}")
+                    print(f"[Volcengine TTS] code={code}: {result.get('message','')}")
             else:
                 body = r.text[:500] if r.text else "(empty)"
                 print(f"[Volcengine TTS] HTTP {r.status_code}: {body}")
@@ -448,46 +446,48 @@ def tts_debug():
     info = {
         "appid": VOLC_TTS_APPID,
         "speaker": VOLC_TTS_SPEAKER,
-        "resource": VOLC_TTS_RESOURCE,
+        "cluster": VOLC_TTS_CLUSTER,
+        "api_url": VOLC_TTS_URL,
         "token_set": bool(VOLC_TTS_TOKEN),
         "token_preview": VOLC_TTS_TOKEN[:8]+"..." if VOLC_TTS_TOKEN else None,
         "fish_fallback": bool(FISH_AUDIO_API_KEY),
         "supabase": bool(SUPABASE_URL and SUPABASE_KEY),
     }
     # Quick test with a short text
-    test_text = "测试"
     try:
+        reqid = str(uuid.uuid4())
         payload = {
+            "app": {
+                "appid": VOLC_TTS_APPID,
+                "token": VOLC_TTS_TOKEN,
+                "cluster": VOLC_TTS_CLUSTER
+            },
             "user": {"uid": "debug"},
-            "req_params": {
-                "text": test_text,
-                "speaker": VOLC_TTS_SPEAKER,
-                "model_type": 4,
-                "audio_params": {"format": "mp3", "sample_rate": 24000}
+            "audio": {
+                "voice_type": VOLC_TTS_SPEAKER,
+                "encoding": "mp3",
+                "speed_ratio": 1.0
+            },
+            "request": {
+                "reqid": reqid,
+                "text": "测试语音",
+                "operation": "query"
             }
         }
         headers = {
             "Authorization": f"Bearer;{VOLC_TTS_TOKEN}",
-            "X-Api-App-Key": VOLC_TTS_APPID,
-            "X-Api-Resource-Id": VOLC_TTS_RESOURCE,
             "Content-Type": "application/json"
         }
-        r = http_req.post(VOLC_TTS_URL, headers=headers, json=payload, stream=True, timeout=15)
+        r = http_req.post(VOLC_TTS_URL, headers=headers, json=payload, timeout=15)
         info["test_status"] = r.status_code
         if r.status_code == 200:
-            chunks = 0
-            errors = []
-            for line in r.iter_lines():
-                if not line: continue
-                try:
-                    chunk = json.loads(line)
-                    if chunk.get("data"): chunks += 1
-                    if chunk.get("code") and chunk["code"] != 0:
-                        errors.append(f"code={chunk['code']}: {chunk.get('message','')}")
-                except: pass
-            info["test_chunks"] = chunks
-            info["test_errors"] = errors
-            info["test_ok"] = chunks > 0 and len(errors) == 0
+            result = r.json()
+            info["test_code"] = result.get("code")
+            info["test_message"] = result.get("message", "")
+            info["test_has_data"] = bool(result.get("data"))
+            if result.get("addition"):
+                info["test_duration_ms"] = result["addition"].get("duration")
+            info["test_ok"] = result.get("code") == 3000 and bool(result.get("data"))
         else:
             info["test_body"] = r.text[:300]
             info["test_ok"] = False
@@ -643,6 +643,6 @@ def load():
 if __name__=='__main__':
     print(f"🌙 月光罅隙 v{APP_VERSION} | http://localhost:{PORT}")
     print(f"   TTS: {'Volcengine ICL2.0' if VOLC_TTS_TOKEN else ('Fish' if FISH_AUDIO_API_KEY else 'None')}")
-    print(f"   Speaker: {VOLC_TTS_SPEAKER} | AppID: {VOLC_TTS_APPID} | Resource: {VOLC_TTS_RESOURCE}")
+    print(f"   Speaker: {VOLC_TTS_SPEAKER} | AppID: {VOLC_TTS_APPID} | Cluster: {VOLC_TTS_CLUSTER}")
     print(f"   Supabase: {'✓' if SUPABASE_URL else '✕ (file fallback)'}")
     app.run(host='0.0.0.0',port=PORT,debug=os.environ.get("DEBUG","1")=="1")
