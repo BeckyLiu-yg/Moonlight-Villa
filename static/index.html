@@ -67,12 +67,14 @@ const api={
 
 /* ── BGM Engine: loads MP3 from static/bgm/*.mp3 ── */
 class BGMEngine{
-  constructor(){this.current=null;this.audio=null;this.vol=0.15;this.fading=false}
+  constructor(){this.current=null;this.audio=null;this.vol=0.15;this._playing=false}
   setVolume(v){this.vol=v;if(this.audio)this.audio.volume=v}
   async play(scene){
     if(scene===this.current&&this.audio&&!this.audio.paused)return;
-    // Fade out old
-    if(this.audio){const old=this.audio;this._fadeOut(old);this.audio=null}
+    if(this._playing)return; // prevent race from double-calls
+    this._playing=true;
+    // Stop old completely
+    if(this.audio){try{this.audio.pause()}catch(e){}this.audio.src='';this.audio=null}
     this.current=scene;
     const a=new Audio(`/static/bgm/${scene}.mp3`);
     a.loop=true;a.volume=0;
@@ -80,12 +82,12 @@ class BGMEngine{
       await a.play();
       this.audio=a;this._fadeIn(a,this.vol);
     }catch(e){/* no bgm file, silent */}
+    this._playing=false;
   }
-  _fadeIn(a,target){let v=0;const t=setInterval(()=>{v+=0.005;if(v>=target){a.volume=target;clearInterval(t)}else a.volume=v},50)}
-  _fadeOut(a){const t=setInterval(()=>{if(a.volume>0.01){a.volume=Math.max(0,a.volume-0.005)}else{a.pause();clearInterval(t)}},50)}
+  _fadeIn(a,target){let v=0;const t=setInterval(()=>{v+=0.005;if(v>=target){a.volume=target;clearInterval(t)}else{try{a.volume=v}catch(e){clearInterval(t)}}},50)}
   pause(){this.audio?.pause()}
   resume(){if(this.audio){try{this.audio.play()}catch(e){}}}
-  destroy(){this.audio?.pause();this.audio=null}
+  destroy(){if(this.audio){try{this.audio.pause()}catch(e){}this.audio.src='';this.audio=null}}
 }
 
 /* ── Synced Typewriter: speed based on audio duration ── */
@@ -341,18 +343,24 @@ function App(){
     document.addEventListener('visibilitychange',h);return()=>document.removeEventListener('visibilitychange',h)},[]);
   
   // Scene -> BGM
-  useEffect(()=>{if(phase==='game')bgmRef.current?.play(scene)},[scene,phase]);
+  useEffect(()=>{if(phase==='game'){bgmRef.current?.setVolume(bgmVol/100*0.25);bgmRef.current?.play(scene)}},[scene,phase]);
   useEffect(()=>{bgmRef.current?.setVolume(bgmVol/100*0.25)},[bgmVol]);
 
-  // Random event: 3 minutes — only when Cain is in current scene
+  // Random event: fires after 3 minutes of user INACTIVITY (no messages sent)
+  const lastActivityRef=useRef(Date.now());
+  // Update activity timestamp whenever user sends a message
+  const markActivity=useCallback(()=>{lastActivityRef.current=Date.now()},[]);
   useEffect(()=>{if(phase!=='game'||!sid)return;
-    const tick=()=>{eventTimerRef.current=setTimeout(async()=>{
-      if(loading||showSettings||showHistory||randomEvent||cainScene!==scene){tick();return}
+    const IDLE_MS=180000; // 3 minutes
+    const check=()=>{eventTimerRef.current=setTimeout(async()=>{
+      const idle=Date.now()-lastActivityRef.current;
+      if(idle<IDLE_MS||loading||showSettings||showHistory||randomEvent||cainScene!==scene){check();return}
       try{const d=await api.randomEvent(sid);setRandomEvent(d);setEmotion(d.emotion||'neutral');
         if(autoVoice&&d.tts_text){try{const blob=await api.ttsBlob(d.tts_text);const url=URL.createObjectURL(blob);const a=new Audio(url);a.onended=()=>URL.revokeObjectURL(url);a.play().catch(()=>{})}catch(e){}}
-      }catch(e){}tick()},180000)};tick();return()=>{clearTimeout(eventTimerRef.current);if(cainTimerRef.current)clearTimeout(cainTimerRef.current)}},[phase,sid]);
+      }catch(e){}lastActivityRef.current=Date.now();check()},30000)}; // check every 30s
+    check();return()=>{clearTimeout(eventTimerRef.current);if(cainTimerRef.current)clearTimeout(cainTimerRef.current)}},[phase,sid]);
 
-  const enterGame=()=>{setPhase('game');bgmRef.current?.play(scene);bgmRef.current?.setVolume(bgmVol/100*0.25)};
+  const enterGame=()=>{setPhase('game')};
 
   // Opening → check auth → auth screen or continue/game
   const handleOpeningDone=()=>{
@@ -438,6 +446,7 @@ function App(){
   const stopTTS=useCallback(()=>{if(voiceRef.current){voiceRef.current.pause();voiceRef.current=null}setVoiceState('idle')},[]);
 
   const send=async()=>{const msg=input.trim();if(!msg||loading||!sid)return;
+    markActivity(); // reset idle timer
     // If Cain isn't here, your voice draws him to this scene
     if(!cainHere)summonCain(scene);
     setInput('');setError(null);setMsgs(p=>[...p,{role:'user',text:msg}]);setLatestReply('');setAudioDur(null);setLoading(true);stopTTS();
@@ -457,7 +466,7 @@ function App(){
       }
     }catch(e){setError(e.message);setMsgs(p=>[...p,{role:'system',text:'⚠ '+e.message}])}finally{setLoading(false)}};
 
-  const switchScene=async(key)=>{if(key===scene||!sid)return;setScene(key);setSceneKey(k=>k+1);
+  const switchScene=async(key)=>{if(key===scene||!sid)return;markActivity();setScene(key);setSceneKey(k=>k+1);
     if(cainTimerRef.current){clearTimeout(cainTimerRef.current);cainTimerRef.current=null}
     setCainArriving(false);
     // Cain stays where he is. He only comes when you call him (via chat) or after a long wait.
