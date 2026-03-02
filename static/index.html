@@ -253,6 +253,112 @@ function SettingsPanel({show,onClose,accent,sessionId,playerId,bgmVol,onBgmVol,t
         {msg&&<div style={{fontSize:11,marginTop:8,color:msg[0]==='✓'?'#88ff88':'#ff8888'}}>{msg}</div>}
       </div></div></div>}
 
+/* ============ SHARE CARD ============ */
+function ShareCard({show,onClose,text,emotion,scene,affection,accent}){
+  const canvasRef=useRef(null);
+  const[imgUrl,setImgUrl]=useState(null);
+  const[generating,setGenerating]=useState(false);
+  
+  useEffect(()=>{
+    if(!show||!text)return;
+    setGenerating(true);
+    const canvas=document.createElement('canvas');
+    const W=720,H=1080;
+    canvas.width=W;canvas.height=H;
+    const ctx=canvas.getContext('2d');
+    
+    // Background gradient
+    const bg=ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,'#0a0a16');bg.addColorStop(0.4,'#12102a');bg.addColorStop(1,'#07060e');
+    ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+    
+    // Subtle accent glow
+    const glow=ctx.createRadialGradient(W/2,H*0.35,0,W/2,H*0.35,350);
+    glow.addColorStop(0,(accent||'#b088ff')+'18');glow.addColorStop(1,'transparent');
+    ctx.fillStyle=glow;ctx.fillRect(0,0,W,H);
+    
+    // Stars
+    for(let i=0;i<40;i++){ctx.beginPath();ctx.arc(Math.random()*W,Math.random()*H*0.5,Math.random()*1.5+0.3,0,Math.PI*2);ctx.fillStyle=`rgba(255,255,255,${Math.random()*0.3+0.05})`;ctx.fill()}
+    
+    // Decorative top line
+    ctx.strokeStyle=(accent||'#b088ff')+'44';ctx.lineWidth=0.5;
+    ctx.beginPath();ctx.moveTo(60,120);ctx.lineTo(W-60,120);ctx.stroke();
+    
+    // Title
+    ctx.font='300 16px "Cormorant Garamond","Noto Serif SC",serif';
+    ctx.fillStyle='rgba(255,255,255,.25)';ctx.textAlign='center';
+    ctx.fillText('月 光 罅 隙',W/2,100);
+    
+    // Scene + Emotion tag
+    const scName=SCENES[scene]?.name||'月光花园';
+    const emName=EMOTION_MAP[emotion]||'';
+    ctx.font='300 13px "Noto Serif SC",serif';ctx.fillStyle='rgba(255,255,255,.3)';
+    ctx.fillText(`${scName}${emName?' · '+emName:''}`,W/2,155);
+    
+    // Main text - word wrap
+    const cleanText=text.replace(/[（(][^）)]+[）)]/g,'').replace(/\*[^*]+\*/g,'').trim();
+    ctx.font='400 26px "Noto Serif SC",serif';ctx.fillStyle='rgba(232,224,240,.88)';
+    ctx.textAlign='left';
+    const maxW=W-140;let y=220;const lines=[];
+    let line='';
+    for(const ch of cleanText){
+      if(ctx.measureText(line+ch).width>maxW){lines.push(line);line=ch}else line+=ch;
+    }
+    if(line)lines.push(line);
+    // Center vertically if short
+    const totalH=lines.length*44;
+    if(totalH<400)y=Math.max(220,(H*0.35-totalH/2));
+    for(const l of lines){ctx.fillText(l,70,y);y+=44}
+    
+    // Cain attribution
+    ctx.font='italic 300 15px "Cormorant Garamond","Noto Serif SC",serif';
+    ctx.fillStyle=(accent||'#b088ff')+'88';ctx.textAlign='right';
+    ctx.fillText('— Cain Art',W-70,y+40);
+    
+    // Affection
+    const affLabel=affection<20?'初识':affection<40?'好奇':affection<60?'信赖':affection<80?'心动':'眷恋';
+    ctx.font='300 12px "Noto Serif SC",serif';ctx.fillStyle='rgba(255,255,255,.15)';ctx.textAlign='center';
+    ctx.fillText(`♡ ${affLabel}`,W/2,H-80);
+    
+    // Bottom line
+    ctx.strokeStyle=(accent||'#b088ff')+'22';ctx.lineWidth=0.5;
+    ctx.beginPath();ctx.moveTo(60,H-50);ctx.lineTo(W-60,H-50);ctx.stroke();
+    
+    // Bottom mark
+    ctx.font='300 10px "Cormorant Garamond",serif';ctx.fillStyle='rgba(255,255,255,.12)';
+    ctx.fillText('moonlight-villa',W/2,H-30);
+    
+    setImgUrl(canvas.toDataURL('image/png'));
+    setGenerating(false);
+  },[show,text,emotion,scene,affection,accent]);
+  
+  const doSave=()=>{
+    if(!imgUrl)return;
+    const a=document.createElement('a');a.href=imgUrl;a.download=`moonlight-${Date.now()}.png`;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+  };
+  const doShare=async()=>{
+    if(!imgUrl||!navigator.share)return doSave();
+    try{
+      const r=await fetch(imgUrl);const blob=await r.blob();
+      const file=new File([blob],'moonlight-share.png',{type:'image/png'});
+      await navigator.share({files:[file],title:'月光罅隙',text:'来自月光罅隙的低语……'});
+    }catch(e){doSave()}
+  };
+  
+  if(!show)return null;
+  return <div style={{position:'fixed',inset:0,zIndex:999,background:'rgba(0,0,0,.85)',backdropFilter:'blur(12px)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',animation:'fadeIn .3s',padding:20}} onClick={onClose}>
+    <div onClick={e=>e.stopPropagation()} style={{maxWidth:360,width:'100%'}}>
+      {generating&&<div style={{color:'#a098b0',textAlign:'center'}}>生成中…</div>}
+      {imgUrl&&<img src={imgUrl} style={{width:'100%',borderRadius:12,boxShadow:'0 8px 40px rgba(0,0,0,.5)'}}/>}
+      {imgUrl&&<div style={{display:'flex',gap:12,justifyContent:'center',marginTop:16}}>
+        <button onClick={doSave} style={{padding:'10px 24px',borderRadius:20,border:`1px solid ${accent}44`,background:'rgba(255,255,255,.05)',color:'#e8e0f0',fontSize:13,cursor:'pointer',fontFamily:'inherit'}}>💾 保存图片</button>
+        {navigator.share&&<button onClick={doShare} style={{padding:'10px 24px',borderRadius:20,border:'none',background:`linear-gradient(135deg,${accent},${accent}88)`,color:'#fff',fontSize:13,cursor:'pointer',fontFamily:'inherit'}}>↗ 分享</button>}
+      </div>}
+      <button onClick={onClose} style={{display:'block',margin:'16px auto 0',background:'none',border:'none',color:'#6a6080',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>关闭</button>
+    </div></div>
+}
+
 function HistoryPanel({show,onClose,messages,accent}){const endRef=useRef(null);
   useEffect(()=>{if(show)setTimeout(()=>endRef.current?.scrollIntoView({behavior:'smooth'}),100)},[show,messages.length]);
   if(!show)return null;
@@ -269,7 +375,7 @@ function HistoryPanel({show,onClose,messages,accent}){const endRef=useRef(null);
       <div ref={endRef}/></div></div>}
 
 /* ============ MAIN ============ */
-const APP_VER = "3.4.1";
+const APP_VER = "3.5";
 // Clear stale localStorage from pre-auth versions (runs once on module load)
 (function(){
   const storedVer=localStorage.getItem('moonlight_ver');
@@ -289,7 +395,7 @@ function App(){
   const[audioDur,setAudioDur]=useState(null);  // for sync
   const[error,setError]=useState(null);const[ready,setReady]=useState(false);
   const[inputFocused,setInputFocused]=useState(false);
-  const[showHistory,setShowHistory]=useState(false);const[showSettings,setShowSettings]=useState(false);
+  const[showHistory,setShowHistory]=useState(false);const[showSettings,setShowSettings]=useState(false);const[showShare,setShowShare]=useState(false);
   const[sceneKey,setSceneKey]=useState(0);
   const[bgmVol,setBgmVol]=useState(25);const[textSpeed,setTextSpeed]=useState(30);
   const[autoVoice,setAutoVoice]=useState(true);const[randomEvent,setRandomEvent]=useState(null);
@@ -507,6 +613,7 @@ function App(){
 
       <HistoryPanel show={showHistory} onClose={()=>setShowHistory(false)} messages={msgs} accent={sc.accent}/>
       <SettingsPanel show={showSettings} onClose={()=>setShowSettings(false)} accent={sc.accent} sessionId={sid} playerId={playerId} bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed} autoVoice={autoVoice} onAutoVoice={setAutoVoice} onLoadSave={applyLoadedSave}/>
+      <ShareCard show={showShare} onClose={()=>setShowShare(false)} text={latestReply} emotion={emotion} scene={scene} affection={aff} accent={sc.accent}/>
 
       {/* Portrait + Dialogue */}
       <div style={{flex:1,display:'flex',flexDirection:'column',justifyContent:'center',padding:`0 ${px}px`,minHeight:0}}>
@@ -551,6 +658,7 @@ function App(){
               {voiceState==='playing'&&<><span style={{fontSize:10,opacity:.5}}>🔊 播放中</span><button onClick={stopTTS} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>⏹</button></>}
               {voiceState==='loading'&&<span style={{fontSize:10,opacity:.5}}>⏳ 语音加载中…</span>}
               {voiceState==='idle'&&!autoVoice&&<button onClick={()=>{const last=msgs.filter(m=>m.role==='ai').pop();if(last)playTTS(last.text)}} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>🔊 播放</button>}
+              <button onClick={()=>setShowShare(true)} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit',marginLeft:'auto'}}>↗ 分享</button>
             </div>}</div>}
 
           {!loading&&!latestReply&&!hasSpoken&&ready&&cainHere&&<div style={{fontSize:fs,lineHeight:2.2,color:'#7a7090',textAlign:'center',padding:'20px 0'}}>
