@@ -56,7 +56,7 @@ def sb(method, table, data=None, params=None):
 def sb_upsert(table, data, conflict_cols):
     """Supabase upsert (insert or update on conflict)."""
     if not SUPABASE_URL or not SUPABASE_KEY: return None
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    url = f"{SUPABASE_URL}/rest/v1/{table}?on_conflict={conflict_cols}"
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -66,7 +66,7 @@ def sb_upsert(table, data, conflict_cols):
     try:
         r = http_req.post(url, headers=headers, json=data, timeout=10)
         if r.status_code in (200, 201): return r.json()
-        print(f"[Supabase] upsert {table}: {r.status_code} {r.text[:200]}")
+        print(f"[Supabase] upsert {table}: {r.status_code} {r.text[:300]}")
     except Exception as e:
         print(f"[Supabase] Error: {e}")
     return None
@@ -531,6 +531,7 @@ def auth():
 # ============ Supabase Save/Load ============
 def save_game_db(player_id, slot, session):
     """Save to Supabase."""
+    from datetime import datetime, timezone
     data = {
         "player_id": player_id,
         "slot": slot,
@@ -538,7 +539,7 @@ def save_game_db(player_id, slot, session):
         "scene": session["scene"],
         "messages": session["messages"][-60:],
         "triggered_events": session.get("triggered_events", []),
-        "updated_at": "now()"
+        "updated_at": datetime.now(timezone.utc).isoformat()
     }
     return sb_upsert("saves", data, "player_id,slot")
 
