@@ -524,13 +524,17 @@ function App(){
   };
 
   // Play TTS and return audio duration
+  const lastAudioUrl=useRef(null);
   const playTTS=useCallback(async(ttsText)=>{
     if(!ttsText||voiceState==='loading')return null;
     if(voiceRef.current){voiceRef.current.pause();voiceRef.current=null}
     setVoiceState('loading');
     try{
       const blob=await api.ttsBlob(ttsText);
+      // Revoke previous cached URL
+      if(lastAudioUrl.current)URL.revokeObjectURL(lastAudioUrl.current);
       const url=URL.createObjectURL(blob);
+      lastAudioUrl.current=url;
       const audio=new Audio(url);
       voiceRef.current=audio;
       // Get duration
@@ -538,17 +542,26 @@ function App(){
         audio.onloadedmetadata=()=>{
           const dur=audio.duration;
           setAudioDur(dur);
-          audio.onended=()=>{setVoiceState('idle');URL.revokeObjectURL(url);voiceRef.current=null};
-          audio.onerror=()=>{setVoiceState('idle');URL.revokeObjectURL(url);voiceRef.current=null};
+          audio.onended=()=>{setVoiceState('idle');voiceRef.current=null};
+          audio.onerror=()=>{setVoiceState('idle');voiceRef.current=null};
           audio.play().then(()=>setVoiceState('playing')).catch(()=>setVoiceState('idle'));
           resolve(dur);
         };
-        audio.onerror=()=>{setVoiceState('idle');URL.revokeObjectURL(url);resolve(null)};
+        audio.onerror=()=>{setVoiceState('idle');resolve(null)};
         // Fallback if metadata doesn't fire
         setTimeout(()=>{if(voiceState==='loading'){audio.play().then(()=>setVoiceState('playing')).catch(()=>setVoiceState('idle'));resolve(null)}},3000);
       });
     }catch(e){setVoiceState('idle');return null}},[voiceState]);
   
+  const replayTTS=useCallback(()=>{
+    if(!lastAudioUrl.current)return;
+    if(voiceRef.current){voiceRef.current.pause()}
+    const audio=new Audio(lastAudioUrl.current);
+    voiceRef.current=audio;
+    audio.onended=()=>{setVoiceState('idle');voiceRef.current=null};
+    audio.play().then(()=>setVoiceState('playing')).catch(()=>setVoiceState('idle'));
+  },[]);
+
   const stopTTS=useCallback(()=>{if(voiceRef.current){voiceRef.current.pause();voiceRef.current=null}setVoiceState('idle')},[]);
 
   const send=async()=>{const msg=input.trim();if(!msg||loading||!sid)return;
@@ -657,7 +670,8 @@ function App(){
             {tw.done&&<div className="fade-in" style={{display:'flex',gap:8,marginTop:10,justifyContent:'flex-end',alignItems:'center'}}>
               {voiceState==='playing'&&<><span style={{fontSize:10,opacity:.5}}>🔊 播放中</span><button onClick={stopTTS} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>⏹</button></>}
               {voiceState==='loading'&&<span style={{fontSize:10,opacity:.5}}>⏳ 语音加载中…</span>}
-              {voiceState==='idle'&&!autoVoice&&<button onClick={()=>{const last=msgs.filter(m=>m.role==='ai').pop();if(last)playTTS(last.text)}} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>🔊 播放</button>}
+              {voiceState==='idle'&&lastAudioUrl.current&&<button onClick={replayTTS} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>🔊 重听</button>}
+              {voiceState==='idle'&&!lastAudioUrl.current&&!autoVoice&&<button onClick={()=>{const last=msgs.filter(m=>m.role==='ai').pop();if(last)playTTS(last.text)}} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>🔊 播放</button>}
               <button onClick={()=>setShowShare(true)} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit',marginLeft:'auto'}}>↗ 分享</button>
             </div>}</div>}
 
