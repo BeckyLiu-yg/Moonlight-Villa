@@ -9,12 +9,12 @@ import requests as http_req, json, uuid, io, re, time, os, random, base64, threa
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "sk-624fe07b825945278cd4db6a51b08b0f")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
 
 # --- Volcengine TTS (声音复刻 ICL 2.0 via HTTP V1 API) ---
 VOLC_TTS_APPID = os.environ.get("VOLC_TTS_APPID", "6909792087")
-VOLC_TTS_TOKEN = os.environ.get("VOLC_TTS_TOKEN") or os.environ.get("VOLC_TTS_API_KEY", "9e3bc221-cdce-4677-8d8d-8321834fe5d0")
+VOLC_TTS_TOKEN = os.environ.get("VOLC_TTS_TOKEN") or os.environ.get("VOLC_TTS_API_KEY", "")
 VOLC_TTS_SPEAKER = os.environ.get("VOLC_TTS_SPEAKER", "S_ZzQMi3JU1")
 VOLC_TTS_CLUSTER = os.environ.get("VOLC_TTS_CLUSTER", "volcano_icl")  # ICL 复刻音色用 volcano_icl
 VOLC_TTS_URL = "https://openspeech.bytedance.com/api/v1/tts"  # V1 HTTP 一次性合成
