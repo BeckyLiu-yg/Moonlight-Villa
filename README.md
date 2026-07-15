@@ -33,8 +33,8 @@ python server.py
    - **Start Command**: `gunicorn server:app --bind 0.0.0.0:$PORT --timeout 60`
 6. 添加环境变量（Settings → Environment）：
    ```
-   DEEPSEEK_API_KEY = sk-624fe07b825945278cd4db6a51b08b0f
-   FISH_AUDIO_API_KEY = ace09915a295439b80399d494f385231
+   DEEPSEEK_API_KEY = your_deepseek_api_key
+   FISH_AUDIO_API_KEY = your_fish_audio_api_key
    FISH_VOICE_MODEL_ID = （可选，填你选择的声音ID）
    DEBUG = 0
    ```
@@ -92,8 +92,7 @@ nohup gunicorn server:app --bind 0.0.0.0:5000 --timeout 60 &
 ## 安全提醒
 
 > 部署前建议把 API key 从代码中移除，只通过环境变量设置。
-> 当前 server.py 已支持环境变量读取（`os.environ.get`），
-> 只需删除默认值并在平台上配置即可。
+> server.py 仅从环境变量读取密钥，请在部署平台中配置，不要把真实密钥写入代码或 README。
 
 ---
 
