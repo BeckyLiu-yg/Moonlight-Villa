@@ -49,7 +49,7 @@ const SCENES={
   attic:{name:'秘密阁楼',icon:'🔮',accent:'#ff88b8',grad:'radial-gradient(ellipse at 40% 60%,#201230 0%,#140e22 50%,#0a0c1a 100%)'},
   basement:{name:'地下酒窖',icon:'🍷',accent:'#ff7070',grad:'radial-gradient(ellipse at 50% 80%,#1a0e1e 0%,#100a14 50%,#0a0c1a 100%)'},
 };
-const EMOTION_MAP={neutral:'平静',gentle:'温柔',playful:'调皮',thoughtful:'沉思',touched:'触动',sad:'忧伤',mysterious:'神秘',shy:'害羞',cold:'冷淡',amused:'愉悦',longing:'思念',vulnerable:'脆弱'};
+const EMOTION_MAP={neutral:'平静',gentle:'稳和',playful:'机敏',thoughtful:'沉思',touched:'动摇',sad:'忧伤',mysterious:'神秘',shy:'回避',cold:'冷淡',amused:'了然',longing:'追索',vulnerable:'坦白'};
 const MOOD_FX={neutral:{f:'none'},gentle:{f:'saturate(1.1) brightness(1.04)'},playful:{f:'saturate(1.12) brightness(1.06)'},thoughtful:{f:'saturate(.95) brightness(.94)'},mysterious:{f:'saturate(.88) brightness(.9) contrast(1.06)'},shy:{f:'saturate(1.08) brightness(1.02)'},sad:{f:'saturate(.8) brightness(.88)'},touched:{f:'saturate(1.1) brightness(1.05)'},cold:{f:'saturate(.75) brightness(.92) contrast(1.08)'},amused:{f:'saturate(1.15) brightness(1.06)'},longing:{f:'saturate(.9) brightness(.93)'},vulnerable:{f:'saturate(.85) brightness(.9)'}};
 
 const api={
@@ -121,8 +121,8 @@ function Particles({sceneKey,accent}){const ps=useMemo(()=>{const cfg={garden:['
   return Array.from({length:n},(_,i)=>({id:i,ch:ch[i%ch.length],x:Math.random()*100,y:Math.random()*100,sz:5+Math.random()*10,dl:Math.random()*4,dur:3+Math.random()*5,op:.1+Math.random()*.2}))},[sceneKey]);
   return <div style={{position:'absolute',inset:0,pointerEvents:'none',overflow:'hidden'}}>{ps.map(p=><span key={p.id} style={{position:'absolute',left:p.x+'%',top:p.y+'%',fontSize:p.sz,opacity:p.op,color:accent,animation:`float ${p.dur}s ${p.dl}s infinite ease-in-out`}}>{p.ch}</span>)}</div>}
 
-function AffectionBar({value,accent}){const l=value<20?'初识':value<40?'好奇':value<60?'信赖':value<80?'心动':'眷恋';
-  return <div style={{display:'flex',alignItems:'center',gap:6}}><span style={{fontSize:13,animation:value>60?'pulse 1.5s infinite':'none'}}>💜</span>
+function AffectionBar({value,accent}){const l=value<20?'戒备':value<40?'观察':value<60?'信任':value<80?'共识':'同盟';
+  return <div title={'信任 '+value+'/100'} style={{display:'flex',alignItems:'center',gap:6}}><span style={{fontSize:13,opacity:.8}}>✦</span>
     <div style={{position:'relative',width:56,height:4,borderRadius:2,background:'rgba(255,255,255,.08)',overflow:'hidden'}}>
       <div style={{width:value+'%',height:'100%',borderRadius:2,background:`linear-gradient(90deg,${accent}66,${accent})`,transition:'width 1.2s'}}/></div>
     <span style={{fontSize:10,opacity:.5,letterSpacing:1}}>{l}</span></div>}
@@ -134,13 +134,13 @@ function OpeningScreen({onEnter}){const[p,setP]=useState(0);
     <div style={{position:'absolute',top:'18%',width:120,height:120,borderRadius:'50%',background:'radial-gradient(circle,rgba(200,180,255,.15) 0%,transparent 70%)',animation:'breathe 4s infinite'}}/>
     {p>=1&&<h1 style={{fontSize:36,fontWeight:300,letterSpacing:12,color:'#e8e0ff',animation:'fadeIn 1.5s ease-out both',textShadow:'0 0 40px rgba(168,130,255,.3)',position:'relative',zIndex:2}}>月光罅隙</h1>}
     {p>=2&&<div style={{marginTop:16,fontSize:14,letterSpacing:6,color:'#8a80a0',fontStyle:'italic',animation:'fadeIn 1.2s ease-out both',position:'relative',zIndex:2}}>Moonlight Rift</div>}
-    {p>=2&&<div style={{marginTop:40,maxWidth:300,textAlign:'center',fontSize:13,lineHeight:2,color:'#7a7090',animation:'fadeIn 1.5s .3s ease-out both',position:'relative',zIndex:2,fontFamily:'Noto Serif SC,serif'}}>时空的罅隙中，月光永驻<br/>有人已等待了很久很久……</div>}
+    {p>=2&&<div style={{marginTop:40,maxWidth:300,textAlign:'center',fontSize:13,lineHeight:2,color:'#7a7090',animation:'fadeIn 1.5s .3s ease-out both',position:'relative',zIndex:2,fontFamily:'Noto Serif SC,serif'}}>时空的罅隙中，月光永驻<br/>古宅正在悄悄改写自己的地图……</div>}
     {p>=3&&<button onClick={onEnter} style={{marginTop:48,padding:'12px 36px',background:'transparent',border:'1px solid rgba(168,130,255,.3)',borderRadius:24,color:'#b8a8d8',fontSize:13,letterSpacing:4,cursor:'pointer',animation:'fadeIn 1s ease-out both, breathe 3s 1s infinite',fontFamily:'Noto Serif SC,serif',position:'relative',zIndex:2}}>推开门扉</button>}
   </div>}
 
 function ContinueScreen({saves,onContinue,onNewGame}){
   const SCENE_NAMES={garden:'月光花园',library:'藏书阁',ballroom:'星光舞厅',attic:'秘密阁楼',basement:'地下酒窖'};
-  const AFF_LABEL=v=>v<20?'初识':v<40?'好奇':v<60?'信赖':v<80?'心动':'眷恋';
+  const AFF_LABEL=v=>v<20?'戒备':v<40?'观察':v<60?'信任':v<80?'共识':'同盟';
   // Find most recent save
   const slots=Object.entries(saves).sort((a,b)=>(b[1].timestamp||0)-(a[1].timestamp||0));
   const latest=slots[0];
@@ -148,23 +148,23 @@ function ContinueScreen({saves,onContinue,onNewGame}){
     <Stars count={40}/>
     <div style={{position:'relative',zIndex:2,textAlign:'center',animation:'fadeIn 1s ease-out both'}}>
       <h2 style={{fontSize:22,fontWeight:300,letterSpacing:6,color:'#e8e0ff',marginBottom:12}}>月光罅隙</h2>
-      <div style={{fontSize:12,color:'#7a7090',letterSpacing:2,marginBottom:40}}>找到了你的痕迹……</div>
+      <div style={{fontSize:12,color:'#7a7090',letterSpacing:2,marginBottom:40}}>检测到已有调查记录……</div>
       
       {latest&&<div style={{marginBottom:36,padding:'16px 24px',background:'rgba(168,130,255,.06)',border:'1px solid rgba(168,130,255,.15)',borderRadius:16,maxWidth:280,margin:'0 auto 36px'}}>
-        <div style={{fontSize:11,color:'#a098c0',marginBottom:8}}>上次旅程</div>
+        <div style={{fontSize:11,color:'#a098c0',marginBottom:8}}>上次调查</div>
         <div style={{fontSize:11,color:'#8a80a0',display:'flex',gap:12,justifyContent:'center'}}>
           <span>🕐 {fmtTime(latest[1].timestamp)}</span>
           {latest[1].scene&&<span>📍 {SCENE_NAMES[latest[1].scene]||latest[1].scene}</span>}
         </div>
-        {latest[1].affection!=null&&<div style={{fontSize:11,color:'#a098c0',marginTop:6}}>💜 {AFF_LABEL(latest[1].affection)} ({latest[1].affection})</div>}
+        {latest[1].affection!=null&&<div style={{fontSize:11,color:'#a098c0',marginTop:6}}>✦ {AFF_LABEL(latest[1].affection)} ({latest[1].affection})</div>}
       </div>}
       
       <div style={{display:'flex',flexDirection:'column',gap:14,alignItems:'center'}}>
         <button onClick={()=>onContinue(latest?latest[0]:'auto')} style={{padding:'12px 40px',background:'rgba(168,130,255,.12)',border:'1px solid rgba(168,130,255,.35)',borderRadius:24,color:'#c8b8e8',fontSize:13,letterSpacing:4,cursor:'pointer',fontFamily:'Noto Serif SC,serif',transition:'all .3s'}}>
           继续旅程</button>
         <button onClick={onNewGame} style={{padding:'10px 36px',background:'transparent',border:'1px solid rgba(255,255,255,.1)',borderRadius:24,color:'#6a6080',fontSize:12,letterSpacing:3,cursor:'pointer',fontFamily:'Noto Serif SC,serif'}}>
-          新的邂逅</button>
-        <div style={{fontSize:10,opacity:.25,marginTop:8}}>新的邂逅会覆盖自动存档</div>
+          重新调查</button>
+        <div style={{fontSize:10,opacity:.25,marginTop:8}}>重新调查会覆盖自动存档</div>
       </div>
     </div>
   </div>}
@@ -216,7 +216,7 @@ function SettingsPanel({show,onClose,accent,sessionId,playerId,bgmVol,onBgmVol,t
 
   const SLOTS=['slot_1','slot_2','slot_3'];
   const SCENE_NAMES={garden:'月光花园',library:'藏书阁',ballroom:'星光舞厅',attic:'秘密阁楼',basement:'地下酒窖'};
-  const AFF_LABEL=v=>v<20?'初识':v<40?'好奇':v<60?'信赖':v<80?'心动':'眷恋';
+  const AFF_LABEL=v=>v<20?'戒备':v<40?'观察':v<60?'信任':v<80?'共识':'同盟';
   
   if(!show)return null;
   return <div style={{position:'absolute',inset:0,zIndex:50,background:'rgba(7,6,14,.92)',backdropFilter:'blur(24px)',display:'flex',flexDirection:'column',animation:'fadeIn .3s'}}>
@@ -245,7 +245,7 @@ function SettingsPanel({show,onClose,accent,sessionId,playerId,bgmVol,onBgmVol,t
               {t&&<div style={{fontSize:10,opacity:.4,display:'flex',gap:10}}>
                 <span>🕐 {t}</span>
                 {info?.scene&&<span>📍 {SCENE_NAMES[info.scene]||info.scene}</span>}
-                {info?.affection!=null&&<span>💜 {AFF_LABEL(info.affection)}</span>}
+                {info?.affection!=null&&<span>✦ {AFF_LABEL(info.affection)}</span>}
               </div>}
               {!t&&<div style={{fontSize:10,opacity:.25,marginTop:4}}>空</div>}
             </div>})}
@@ -316,7 +316,7 @@ function ShareCard({show,onClose,text,emotion,scene,affection,accent}){
     ctx.fillText('— Cain Art',W-70,y+40);
     
     // Affection
-    const affLabel=affection<20?'初识':affection<40?'好奇':affection<60?'信赖':affection<80?'心动':'眷恋';
+    const affLabel=affection<20?'戒备':affection<40?'观察':affection<60?'信任':affection<80?'共识':'同盟';
     ctx.font='300 12px "Noto Serif SC",serif';ctx.fillStyle='rgba(255,255,255,.15)';ctx.textAlign='center';
     ctx.fillText(`♡ ${affLabel}`,W/2,H-80);
     
@@ -424,6 +424,11 @@ function App(){
       try{
         const d=await api.createSession();
         setSid(d.session_id);setAff(d.affection);
+        if(d.opening_reply){
+          setMsgs([{role:'ai',text:d.opening_reply,emotion:d.emotion||'mysterious'}]);
+          setLatestReply(d.opening_reply);
+          setEmotion(d.emotion||'mysterious');
+        }
         // Check for stored auth
         const storedPid=localStorage.getItem('moonlight_pid');
         const storedName=localStorage.getItem('moonlight_name');
@@ -509,9 +514,15 @@ function App(){
 
   // New game: fresh start
   const handleNewGame=async()=>{
-    try{const d=await api.createSession();setSid(d.session_id);setAff(d.affection);
+    try{
+      const d=await api.createSession();
+      setSid(d.session_id);setAff(d.affection);
       localStorage.setItem('moonlight_sid',d.session_id);
-      setMsgs([]);setScene('garden');setCainScene('garden');
+      const opening=d.opening_reply||'';
+      setMsgs(opening?[{role:'ai',text:opening,emotion:d.emotion||'mysterious'}]:[]);
+      setLatestReply(opening);
+      setEmotion(d.emotion||'mysterious');
+      setScene('garden');setCainScene('garden');
     }catch(e){}
     enterGame();
   };
@@ -519,8 +530,12 @@ function App(){
   // Apply loaded save data (from continue screen or settings panel)
   const applyLoadedSave=(d)=>{
     setAff(d.affection||15);setScene(d.scene||'garden');setCainScene(d.scene||'garden');
-    setMsgs((d.messages||[]).map(m=>({role:m.role==='assistant'?'ai':m.role,text:m.content||m.text||''})));
-    setLatestReply('');enterGame();
+    const loaded=(d.messages||[]).map(m=>({role:m.role==='assistant'?'ai':m.role,text:m.content||m.text||''}));
+    setMsgs(loaded);
+    const lastCain=[...loaded].reverse().find(m=>m.role==='ai');
+    setLatestReply(lastCain?.text||'');
+    setEmotion(lastCain?.emotion||'neutral');
+    enterGame();
   };
 
   // Play TTS and return audio duration
@@ -648,8 +663,8 @@ function App(){
             background:`radial-gradient(circle,${sc.accent}06 0%,transparent 70%)`}}>
             <span style={{fontSize:24,opacity:.2}}>✦</span></div>
           <div style={{textAlign:'center',color:'#6a6080',fontSize:12,letterSpacing:1,lineHeight:1.8,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>
-            <div style={{opacity:.5}}>月光罅隙的主人隐匿了他的身影</div>
-            <div style={{opacity:.3,fontSize:11,marginTop:4}}>也许叫他的名字，他会循声而来……</div></div>
+            <div style={{opacity:.5}}>Cain 当前不在这个场景</div>
+            <div style={{opacity:.3,fontSize:11,marginTop:4}}>发送消息可请求 Cain 前往当前场景</div></div>
         </div>}
 
         {/* Dialogue */}
@@ -677,10 +692,10 @@ function App(){
 
           {!loading&&!latestReply&&!hasSpoken&&ready&&cainHere&&<div style={{fontSize:fs,lineHeight:2.2,color:'#7a7090',textAlign:'center',padding:'20px 0'}}>
             <div style={{fontSize:16,marginBottom:8,animation:'float 3s infinite',color:sc.accent+'88'}}>✦</div>
-            <div style={{fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",fontSize:14,letterSpacing:1}}>月光如水，罅隙的主人正望向你……</div>
-            <div style={{fontSize:11,opacity:.5,marginTop:6}}>试着和 Cain 说些什么吧</div></div>}
+            <div style={{fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",fontSize:14,letterSpacing:1}}>花园日晷刚刚逆行了一格……</div>
+            <div style={{fontSize:11,opacity:.5,marginTop:6}}>从日晷、地图或第六个房间开始调查</div></div>}
           {!loading&&!cainHere&&hasSpoken&&<div style={{fontSize:fs,lineHeight:2.2,color:'#5a5070',textAlign:'center',padding:'30px 0',fontStyle:'italic'}}>
-            <div style={{fontSize:14,opacity:.4,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",letterSpacing:1}}>空气中残留着他的气息——薄荷与月光的味道……</div></div>}
+            <div style={{fontSize:14,opacity:.4,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",letterSpacing:1}}>走廊尽头仍有一组尚未解释的脚步声。</div></div>}
           {!ready&&!error&&<div style={{fontSize:fs,color:'#7a7090',textAlign:'center'}}>正在连接<span className="loading-dots"/></div>}
         </div></div>
 
@@ -688,7 +703,7 @@ function App(){
       <div style={{padding:`8px ${px}px 10px`,paddingBottom:`calc(10px + env(safe-area-inset-bottom))`}}>
         <div style={{display:'flex',gap:8,alignItems:'center',background:'rgba(12,11,20,.55)',backdropFilter:'blur(18px)',borderRadius:22,border:`1px solid ${inputFocused?sc.accent+'40':'rgba(255,255,255,.06)'}`,padding:'6px 6px 6px 18px',transition:'all .3s',boxShadow:inputFocused?`0 0 20px ${sc.accent}10`:'none'}}>
           <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}}
-            onFocus={()=>setInputFocused(true)} onBlur={()=>setInputFocused(false)} placeholder={!cainHere?'叫他的名字，也许他会循声而来……':loading?'Cain 正在回应…':'对 Cain 说点什么…'} disabled={loading||!ready}
+            onFocus={()=>setInputFocused(true)} onBlur={()=>setInputFocused(false)} placeholder={!cainHere?'发送消息，请求 Cain 前往当前场景…':loading?'Cain 正在回应…':'向 Cain 提问或提交线索…'} disabled={loading||!ready}
             style={{flex:1,background:'transparent',border:'none',outline:'none',color:'#e8e0f0',fontSize:fs,fontFamily:'inherit',lineHeight:1.4}}/>
           <button onClick={send} disabled={loading||!input.trim()||!ready} style={{width:40,height:40,borderRadius:16,border:'none',
             background:input.trim()&&!loading?`linear-gradient(135deg,${sc.accent},${sc.accent}88)`:'rgba(255,255,255,.04)',color:input.trim()&&!loading?'#fff':'#444',fontSize:16,
