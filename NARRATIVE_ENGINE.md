@@ -21,9 +21,12 @@ The relationship is intentionally multi-dimensional:
 - `rapport`: conversational alignment and familiarity.
 - `disclosure`: readiness to reveal hidden information.
 
-Beliefs are versioned as `previous_view -> revised_view` with evidence and a
-confidence score. This lets a character remain composed while still changing
-their understanding over a long-running story.
+Beliefs are not overwritten when the player disagrees. Each belief has
+`confidence`, `rigidity`, a possible `candidate_view`, and weighted evidence.
+A weak correction may be rejected or merely noted; repeated independent evidence
+can move the state through `questioned`, `suspended`, `partially_revised`,
+and finally `revised`. This prevents the character from becoming a mirror of
+the player's latest opinion.
 
 ## Suggested integration
 
