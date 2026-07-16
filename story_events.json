@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "events": [
+    {
+      "id": "rift_recognition",
+      "priority": 100,
+      "trigger": {
+        "min_turn": 1
+      },
+      "summary": "The sundial reverses once, suggesting the rift recognizes the visitor rather than admitting an accident.",
+      "response_intent": "acknowledge_anomaly_and_request_last_memory",
+      "line_id": "RIFT_RECOGNITION_01",
+      "effects": {
+        "add_flags": [
+          "rift_recognized_visitor"
+        ],
+        "open_threads": [
+          "why_the_rift_recognizes_the_visitor"
+        ],
+        "relationship_delta": {
+          "disclosure": 1
+        }
+      }
+    },
+    {
+      "id": "sundial_echo",
+      "priority": 90,
+      "trigger": {
+        "min_turn": 4,
+        "requires_flags": [
+          "rift_recognized_visitor"
+        ]
+      },
+      "summary": "The sundial repeats a phrase recorded earlier, implying that the villa is learning or remembering.",
+      "response_intent": "offer_investigation_or_questioning_choice",
+      "line_id": "SUNDIAL_ECHO_01",
+      "effects": {
+        "add_flags": [
+          "sundial_echo_seen"
+        ],
+        "open_threads": [
+          "who_or_what_records_conversations"
+        ],
+        "relationship_delta": {
+          "trust": 1,
+          "disclosure": 1
+        }
+      }
+    },
+    {
+      "id": "sixth_room_trace",
+      "priority": 80,
+      "trigger": {
+        "min_turn": 7,
+        "requires_flags": [
+          "sundial_echo_seen"
+        ]
+      },
+      "summary": "A reflection briefly reveals a sixth room that contradicts the known map of the villa.",
+      "response_intent": "compare_conflicting_evidence_without_forcing_a_conclusion",
+      "line_id": "SIXTH_ROOM_TRACE_01",
+      "effects": {
+        "add_flags": [
+          "sixth_room_suspected"
+        ],
+        "open_threads": [
+          "whether_the_sixth_room_was_removed"
+        ],
+        "relationship_delta": {
+          "disclosure": 2
+        }
+      }
+    },
+    {
+      "id": "piano_memory_gap",
+      "priority": 70,
+      "trigger": {
+        "min_turn": 10,
+        "scene": "ballroom",
+        "requires_flags": [
+          "sixth_room_suspected"
+        ]
+      },
+      "summary": "The piano plays a sequence the host can continue but cannot consciously remember.",
+      "response_intent": "acknowledge_memory_gap_and_revise_prior_certainty",
+      "line_id": "PIANO_MEMORY_GAP_01",
+      "effects": {
+        "add_flags": [
+          "host_memory_unreliable"
+        ],
+        "open_threads": [
+          "which_memories_were_altered"
+        ],
+        "relationship_delta": {
+          "trust": 2,
+          "disclosure": 2
+        }
+      }
+    },
+    {
+      "id": "archive_crosscheck",
+      "priority": 60,
+      "trigger": {
+        "min_turn": 12,
+        "scene": "library",
+        "requires_flags": [
+          "host_memory_unreliable"
+        ],
+        "min_relationship": {
+          "trust": 20
+        }
+      },
+      "summary": "An archive entry contradicts the host's account and provides evidence for a belief revision.",
+      "response_intent": "record_belief_revision_and_choose_next_investigation",
+      "line_id": "ARCHIVE_CROSSCHECK_01",
+      "effects": {
+        "add_flags": [
+          "archive_contradiction_found"
+        ],
+        "close_threads": [
+          "whether_the_sixth_room_was_removed"
+        ],
+        "open_threads": [
+          "who_altered_the_archive"
+        ],
+        "relationship_delta": {
+          "trust": 2,
+          "disclosure": 3
+        }
+      }
+    }
+  ]
+}
