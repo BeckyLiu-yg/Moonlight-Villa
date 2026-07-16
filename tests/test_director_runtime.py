@@ -34,7 +34,8 @@ class DirectorRuntimeTests(unittest.TestCase):
         )
 
         after = runtime.after_response("s1", "文本提到了月石戒指。")
-        self.assertIn("moonstone_ring", after["state"]["recent_motifs"])
+        motif_names = [item["name"] for item in after["state"]["recent_motifs"]]
+        self.assertIn("moonstone_ring", motif_names)
 
     def test_saved_state_can_be_restored(self):
         first = DirectorRuntime(EVENTS_PATH, enabled=True, seed=2)
