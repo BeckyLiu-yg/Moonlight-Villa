@@ -61,12 +61,30 @@ class RelationshipState:
 
 
 @dataclass
+class Evidence:
+    statement: str
+    direction: int
+    strength: float
+    source_reliability: float
+    turn: int
+
+    @property
+    def weighted_impact(self) -> float:
+        direction = 1 if self.direction >= 0 else -1
+        return direction * max(0.0, min(1.0, self.strength)) * max(
+            0.0, min(1.0, self.source_reliability)
+        )
+
+
+@dataclass
 class Belief:
     subject: str
-    previous_view: str
-    revised_view: str
-    confidence: float = 0.5
-    evidence: List[str] = field(default_factory=list)
+    current_view: str
+    confidence: float = 0.8
+    rigidity: float = 0.65
+    status: str = "stable"
+    candidate_view: Optional[str] = None
+    evidence: List[Evidence] = field(default_factory=list)
     updated_turn: int = 0
 
 
@@ -97,10 +115,13 @@ class NarrativeState:
     def from_dict(cls, payload: Optional[Dict[str, Any]]) -> "NarrativeState":
         payload = payload or {}
         relationship = RelationshipState(**payload.get("relationship", {}))
-        beliefs = {
-            key: Belief(**value)
-            for key, value in payload.get("beliefs", {}).items()
-        }
+        beliefs = {}
+        for key, value in payload.get("beliefs", {}).items():
+            belief_data = dict(value)
+            evidence = [
+                Evidence(**item) for item in belief_data.pop("evidence", [])
+            ]
+            beliefs[key] = Belief(evidence=evidence, **belief_data)
         return cls(
             relationship=relationship,
             beliefs=beliefs,
@@ -159,27 +180,75 @@ class NarrativeEngine:
             "engage": {"trust": 1, "rapport": 1, "disclosure": 0},
         }.get(intent, {})
 
-    def record_belief_revision(
+    def add_belief(
         self,
         subject: str,
-        previous_view: str,
-        revised_view: str,
-        evidence: Optional[Iterable[str]] = None,
-        confidence: float = 0.55,
-    ) -> None:
-        existing = self.state.beliefs.get(subject)
-        merged_evidence = list(existing.evidence) if existing else []
-        for item in evidence or []:
-            if item not in merged_evidence:
-                merged_evidence.append(item)
-        self.state.beliefs[subject] = Belief(
+        current_view: str,
+        confidence: float = 0.8,
+        rigidity: float = 0.65,
+    ) -> Belief:
+        belief = Belief(
             subject=subject,
-            previous_view=previous_view,
-            revised_view=revised_view,
+            current_view=current_view,
             confidence=max(0.0, min(1.0, float(confidence))),
-            evidence=merged_evidence[-8:],
+            rigidity=max(0.0, min(0.95, float(rigidity))),
             updated_turn=self.state.turn,
         )
+        self.state.beliefs[subject] = belief
+        return belief
+
+    def add_belief_evidence(
+        self,
+        subject: str,
+        statement: str,
+        supports_current: bool,
+        strength: float,
+        source_reliability: float,
+        candidate_view: Optional[str] = None,
+    ) -> Belief:
+        belief = self.state.beliefs.get(subject)
+        if belief is None:
+            raise KeyError(f"Unknown belief: {subject}")
+
+        item = Evidence(
+            statement=statement,
+            direction=1 if supports_current else -1,
+            strength=max(0.0, min(1.0, float(strength))),
+            source_reliability=max(0.0, min(1.0, float(source_reliability))),
+            turn=self.state.turn,
+        )
+        belief.evidence.append(item)
+        belief.evidence = belief.evidence[-12:]
+        if candidate_view and not supports_current:
+            belief.candidate_view = candidate_view
+
+        inertia = belief.rigidity
+        belief.confidence = max(
+            0.0,
+            min(
+                1.0,
+                belief.confidence + item.weighted_impact * (1.0 - inertia),
+            ),
+        )
+        belief.updated_turn = self.state.turn
+
+        if belief.confidence >= 0.7:
+            belief.status = "stable"
+        elif belief.confidence >= 0.5:
+            belief.status = "questioned"
+        elif belief.confidence >= 0.3:
+            belief.status = "suspended"
+        elif belief.confidence >= 0.15:
+            belief.status = "partially_revised"
+        elif belief.candidate_view:
+            belief.current_view = belief.candidate_view
+            belief.candidate_view = None
+            belief.confidence = 0.55
+            belief.status = "revised"
+        else:
+            belief.status = "suspended"
+
+        return belief
 
     def detect_motifs(self, text: str) -> List[str]:
         return [name for name, pattern in MOTIF_PATTERNS.items() if pattern.search(text or "")]
@@ -274,9 +343,14 @@ class NarrativeEngine:
         belief_updates = [
             {
                 "subject": belief.subject,
-                "revised_view": belief.revised_view,
+                "current_view": belief.current_view,
+                "candidate_view": belief.candidate_view,
                 "confidence": belief.confidence,
-                "evidence": belief.evidence[-3:],
+                "rigidity": belief.rigidity,
+                "status": belief.status,
+                "recent_evidence": [
+                    asdict(item) for item in belief.evidence[-3:]
+                ],
             }
             for belief in self.state.beliefs.values()
         ]
