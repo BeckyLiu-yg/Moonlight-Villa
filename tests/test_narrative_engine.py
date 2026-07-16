@@ -31,23 +31,55 @@ class NarrativeEngineTests(unittest.TestCase):
             ["rift_recognition", "sundial_echo", "sixth_room_trace"],
         )
 
-    def test_belief_revision_survives_serialization(self):
+    def test_weak_correction_does_not_immediately_replace_belief(self):
         engine = NarrativeEngine.from_file(EVENTS_PATH, seed=3)
         engine.plan_turn("这个判断可能不对。", "library")
-        engine.record_belief_revision(
+        belief = engine.add_belief(
             subject="villa_map",
-            previous_view="The map is complete.",
-            revised_view="The map may omit a room.",
-            evidence=["mirror_trace"],
-            confidence=0.7,
+            current_view="The map is complete.",
+            confidence=0.85,
+            rigidity=0.7,
         )
+        engine.add_belief_evidence(
+            subject="villa_map",
+            statement="A visitor questions the map.",
+            supports_current=False,
+            strength=0.25,
+            source_reliability=0.5,
+            candidate_view="The map may omit a room.",
+        )
+
+        self.assertEqual(belief.current_view, "The map is complete.")
+        self.assertIn(belief.status, {"stable", "questioned"})
+
+    def test_repeated_strong_evidence_can_eventually_revise_belief(self):
+        engine = NarrativeEngine.from_file(EVENTS_PATH, seed=7)
+        engine.plan_turn("继续核对。", "library")
+        engine.add_belief(
+            subject="villa_map",
+            current_view="The map is complete.",
+            confidence=0.75,
+            rigidity=0.35,
+        )
+        for index in range(4):
+            belief = engine.add_belief_evidence(
+                subject="villa_map",
+                statement=f"Independent contradiction {index}",
+                supports_current=False,
+                strength=0.9,
+                source_reliability=0.9,
+                candidate_view="The map may omit a room.",
+            )
+
+        self.assertEqual(belief.current_view, "The map may omit a room.")
+        self.assertEqual(belief.status, "revised")
 
         restored = NarrativeState.from_dict(engine.state.to_dict())
         self.assertEqual(
-            restored.beliefs["villa_map"].revised_view,
+            restored.beliefs["villa_map"].current_view,
             "The map may omit a room.",
         )
-        self.assertEqual(restored.beliefs["villa_map"].evidence, ["mirror_trace"])
+        self.assertEqual(len(restored.beliefs["villa_map"].evidence), 4)
 
     def test_motif_cooldown_and_quality_check(self):
         engine = NarrativeEngine.from_file(EVENTS_PATH, seed=4)
