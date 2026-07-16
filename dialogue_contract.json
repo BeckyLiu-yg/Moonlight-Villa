@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Moonlight Villa Narrative Director Decision",
+  "type": "object",
+  "required": [
+    "turn",
+    "player_intent",
+    "response_intent",
+    "dialogue_mode",
+    "relationship_delta",
+    "relationship_state",
+    "belief_updates",
+    "plot_event",
+    "avoid_motifs",
+    "open_threads",
+    "state"
+  ],
+  "properties": {
+    "turn": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "player_intent": {
+      "type": "string"
+    },
+    "response_intent": {
+      "type": "string"
+    },
+    "dialogue_mode": {
+      "enum": [
+        "direct_response",
+        "graceful_uncertainty",
+        "dry_humor",
+        "measured_question",
+        "historical_context",
+        "plot_observation"
+      ]
+    },
+    "relationship_delta": {
+      "$ref": "#/$defs/relationshipDelta"
+    },
+    "relationship_state": {
+      "$ref": "#/$defs/relationshipState"
+    },
+    "belief_updates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/beliefUpdate"
+      }
+    },
+    "plot_event": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/plotEvent"
+        }
+      ]
+    },
+    "avoid_motifs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "open_threads": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "state": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "relationshipDelta": {
+      "type": "object",
+      "properties": {
+        "trust": {
+          "type": "integer"
+        },
+        "rapport": {
+          "type": "integer"
+        },
+        "disclosure": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "relationshipState": {
+      "type": "object",
+      "required": [
+        "trust",
+        "rapport",
+        "disclosure"
+      ],
+      "properties": {
+        "trust": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "rapport": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "disclosure": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "beliefUpdate": {
+      "type": "object",
+      "required": [
+        "subject",
+        "revised_view",
+        "confidence",
+        "evidence"
+      ],
+      "properties": {
+        "subject": {
+          "type": "string"
+        },
+        "revised_view": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "plotEvent": {
+      "type": "object",
+      "required": [
+        "id",
+        "summary",
+        "line_id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "line_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
