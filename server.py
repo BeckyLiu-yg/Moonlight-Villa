@@ -348,7 +348,6 @@ def prepare_director_turn(session_id, session, user_text):
     session["affection"] = state["relationship"]["trust"]
     return decision
 
-def build_prompt
 def build_prompt(session, player_id=None, director_decision=None):
     scene = SCENE_DESCRIPTIONS.get(session["scene"], SCENE_DESCRIPTIONS["garden"])
     memory_context = ""
