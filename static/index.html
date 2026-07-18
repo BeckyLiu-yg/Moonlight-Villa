@@ -62,7 +62,9 @@ const api={
   save:(sid,slot,pid)=>api.post('/api/save',{session_id:sid,slot,player_id:pid}),
   load:(sid,slot,pid)=>api.post('/api/load',{session_id:sid,slot,player_id:pid}),
   listSaves:(sid,pid)=>api.post('/api/saves/list',{session_id:sid,player_id:pid}),
-  async ttsBlob(text){const r=await fetch(API+'/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,pre_cleaned:true})});if(!r.ok)throw new Error('TTS失败');return r.blob()},
+  async ttsBlob(text){const r=await fetch(API+'/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,pre_cleaned:true})});
+    if(!r.ok){const e=await r.json().catch(()=>({error:'语音请求失败'}));const details=(e.details||[]).join('；');throw new Error(details?e.error+'：'+details:e.error||'语音请求失败')}
+    return r.blob()},
 };
 
 /* ── BGM Engine: loads MP3 from static/bgm/*.mp3 ── */
@@ -200,13 +202,13 @@ function EventToast({event,accent,onDismiss}){if(!event)return null;
 
 function fmtTime(ts){if(!ts)return null;const d=new Date(ts*1000);const pad=n=>(n<10?'0':'')+n;return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`}
 
-function SettingsPanel({show,onClose,accent,sessionId,playerId,bgmVol,onBgmVol,textSpeed,onTextSpeed,autoVoice,onAutoVoice,onLoadSave}){
+function SettingsPanel({show,onClose,accent,sessionId,playerId,playerName,onSwitchAccount,ttsProvider,voiceError,accountNotice,bgmVol,onBgmVol,textSpeed,onTextSpeed,autoVoice,onAutoVoice,onLoadSave}){
   const[saving,setSaving]=useState(false);const[msg,setMsg]=useState('');
   const[saveInfo,setSaveInfo]=useState({});const[loadingList,setLoadingList]=useState(false);
   
   // Fetch save info when panel opens
   useEffect(()=>{if(!show||!sessionId)return;setLoadingList(true);
-    api.listSaves(sessionId,playerId).then(d=>setSaveInfo(d.saves||{})).catch(()=>{}).finally(()=>setLoadingList(false))},[show,sessionId]);
+    api.listSaves(sessionId,playerId).then(d=>{setSaveInfo(d.saves||{});setMsg('')}).catch(e=>setMsg('✕ '+e.message)).finally(()=>setLoadingList(false))},[show,sessionId]);
 
   const doSave=async(slot)=>{setSaving(true);setMsg('');try{const d=await api.save(sessionId,slot,playerId);setMsg('✓ 存档成功');
     setSaveInfo(p=>({...p,[slot]:{timestamp:d.timestamp,affection:p[slot]?.affection,scene:p[slot]?.scene}}))}catch(e){setMsg('✕ '+e.message)}finally{setSaving(false)}};
@@ -221,12 +223,21 @@ function SettingsPanel({show,onClose,accent,sessionId,playerId,bgmVol,onBgmVol,t
   if(!show)return null;
   return <div style={{position:'absolute',inset:0,zIndex:50,background:'rgba(7,6,14,.92)',backdropFilter:'blur(24px)',display:'flex',flexDirection:'column',animation:'fadeIn .3s'}}>
     <div style={{padding:'20px 20px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-      <span style={{fontSize:16,fontWeight:500,letterSpacing:3}}>设 置</span>
+      <span style={{fontSize:16,fontWeight:500,letterSpacing:3}}>账户与存档</span>
       <button onClick={onClose} style={{background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',borderRadius:10,padding:'4px 12px',color:'#a098b0',fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>✕</button></div>
     <div style={{flex:1,overflow:'auto',padding:'8px 20px 20px'}} className="hide-scroll">
+      <div style={{marginBottom:20,padding:'12px 14px',borderRadius:14,background:'rgba(255,255,255,.03)',border:'1px solid rgba(255,255,255,.06)'}}>
+        <div style={{fontSize:11,color:'#8a80a0',marginBottom:6}}>当前账户</div>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+          <span style={{fontSize:13,color:'#d8d0e8'}}>{playerName||'本地临时账户'}</span>
+          <button onClick={onSwitchAccount} style={{padding:'5px 10px',borderRadius:8,fontSize:10,cursor:'pointer',fontFamily:'inherit',background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.1)',color:'#a098b0'}}>切换账户</button>
+        </div>
+        {accountNotice&&<div style={{fontSize:10,color:'#ffb080',marginTop:7,lineHeight:1.6}}>{accountNotice}</div>}
+      </div>
       <div style={{marginBottom:24}}><div style={{fontSize:12,color:'#8a80a0',marginBottom:10}}>🔊 自动语音</div>
         <div style={{display:'flex',gap:8}}>{[{l:'开启',v:true},{l:'关闭',v:false}].map(o=><button key={String(o.v)} onClick={()=>onAutoVoice(o.v)} style={{flex:1,padding:'8px 0',borderRadius:10,fontSize:12,cursor:'pointer',fontFamily:'inherit',background:autoVoice===o.v?accent+'22':'rgba(255,255,255,.04)',border:`1px solid ${autoVoice===o.v?accent+'55':'rgba(255,255,255,.08)'}`,color:autoVoice===o.v?accent:'#8a80a0'}}>{o.l}</button>)}</div>
-        <div style={{fontSize:10,opacity:.35,marginTop:6}}>开启后文字会和语音同步出现</div></div>
+        <div style={{fontSize:10,opacity:.35,marginTop:6}}>语音服务：{ttsProvider||'未配置'}；开启后文字会和语音同步出现</div>
+        {voiceError&&<div style={{fontSize:10,color:'#ff9b8f',marginTop:5,lineHeight:1.5}}>{voiceError}</div>}</div>
       <div style={{marginBottom:24}}><div style={{fontSize:12,color:'#8a80a0',marginBottom:10}}>🎵 背景音乐</div>
         <input type="range" min="0" max="100" value={bgmVol} onChange={e=>onBgmVol(+e.target.value)} style={{width:'100%',accentColor:accent,height:4}}/>
         <div style={{fontSize:11,opacity:.4,marginTop:4}}>{bgmVol}%</div></div>
@@ -399,7 +410,8 @@ function App(){
   const[sceneKey,setSceneKey]=useState(0);
   const[bgmVol,setBgmVol]=useState(25);const[textSpeed,setTextSpeed]=useState(30);
   const[autoVoice,setAutoVoice]=useState(true);const[randomEvent,setRandomEvent]=useState(null);
-  const[voiceState,setVoiceState]=useState('idle');
+  const[voiceState,setVoiceState]=useState('idle');const[voiceError,setVoiceError]=useState('');const[ttsProvider,setTtsProvider]=useState(null);
+  const[accountNotice,setAccountNotice]=useState('');
   const[cainScene,setCainScene]=useState('garden');const[cainArriving,setCainArriving]=useState(false);
   const[existingSaves,setExistingSaves]=useState(null);
   const[playerId,setPlayerId]=useState(null);const[playerName,setPlayerName]=useState('');
@@ -423,7 +435,7 @@ function App(){
       // Always create a server session for in-memory state
       try{
         const d=await api.createSession();
-        setSid(d.session_id);setAff(d.affection);
+        setSid(d.session_id);setAff(d.affection);setTtsProvider(d.tts_provider||null);
         if(d.opening_reply){
           setMsgs([{role:'ai',text:d.opening_reply,emotion:d.emotion||'mysterious'}]);
           setLatestReply(d.opening_reply);
@@ -440,7 +452,7 @@ function App(){
             if(saves.saves&&Object.keys(saves.saves).length>0){
               setExistingSaves(saves.saves);
             }else{setExistingSaves({})}
-          }catch(e){setExistingSaves({})}
+          }catch(e){setExistingSaves({});setAccountNotice('账户已恢复，但云端存档暂时读取失败：'+e.message)}
         }
         setReady(true);
       }catch(e){setError('无法连接服务器')}
@@ -498,7 +510,7 @@ function App(){
       if(saves.saves&&Object.keys(saves.saves).length>0){
         setExistingSaves(saves.saves);setPhase('continue');return;
       }
-    }catch(e){}
+    }catch(e){setAccountNotice('账户已登录，但存档列表读取失败：'+e.message)}
     enterGame();
   };
 
@@ -512,11 +524,17 @@ function App(){
     }
   };
 
+  const switchAccount=()=>{
+    localStorage.removeItem('moonlight_pid');localStorage.removeItem('moonlight_name');
+    setPlayerId(null);setPlayerName('');setExistingSaves(null);setAccountNotice('');
+    setShowSettings(false);setPhase('auth');
+  };
+
   // New game: fresh start
   const handleNewGame=async()=>{
     try{
       const d=await api.createSession();
-      setSid(d.session_id);setAff(d.affection);
+      setSid(d.session_id);setAff(d.affection);setTtsProvider(d.tts_provider||null);
       localStorage.setItem('moonlight_sid',d.session_id);
       const opening=d.opening_reply||'';
       setMsgs(opening?[{role:'ai',text:opening,emotion:d.emotion||'mysterious'}]:[]);
@@ -543,7 +561,7 @@ function App(){
   const playTTS=useCallback(async(ttsText)=>{
     if(!ttsText||voiceState==='loading')return null;
     if(voiceRef.current){voiceRef.current.pause();voiceRef.current=null}
-    setVoiceState('loading');
+    setVoiceError('');setVoiceState('loading');
     try{
       const blob=await api.ttsBlob(ttsText);
       // Revoke previous cached URL
@@ -566,7 +584,7 @@ function App(){
         // Fallback if metadata doesn't fire
         setTimeout(()=>{if(voiceState==='loading'){audio.play().then(()=>setVoiceState('playing')).catch(()=>setVoiceState('idle'));resolve(null)}},3000);
       });
-    }catch(e){setVoiceState('idle');return null}},[voiceState]);
+    }catch(e){setVoiceState('idle');setVoiceError(e.message||'语音播放失败');return null}},[voiceState]);
   
   const replayTTS=useCallback(()=>{
     if(!lastAudioUrl.current)return;
@@ -629,7 +647,7 @@ function App(){
         <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}}>
           <AffectionBar value={aff} accent={sc.accent}/>
           <div style={{display:'flex',gap:6}}>
-            <button onClick={()=>{setShowHistory(false);setShowSettings(!showSettings)}} style={{background:showSettings?sc.accent+'18':'transparent',border:'1px solid '+(showSettings?sc.accent+'44':'rgba(255,255,255,.1)'),borderRadius:8,padding:'3px 8px',fontSize:10,color:showSettings?sc.accent:'#8a80a0',cursor:'pointer',fontFamily:'inherit'}}>⚙</button>
+            <button onClick={()=>{setShowHistory(false);setShowSettings(!showSettings)}} style={{background:showSettings?sc.accent+'18':'transparent',border:'1px solid '+(showSettings?sc.accent+'44':'rgba(255,255,255,.1)'),borderRadius:8,padding:'4px 8px',fontSize:9,color:showSettings?sc.accent:'#8a80a0',cursor:'pointer',fontFamily:'inherit',maxWidth:110,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{playerName||'账户'} · 存档</button>
             <button onClick={()=>{setShowSettings(false);setShowHistory(!showHistory)}} style={{background:showHistory?sc.accent+'18':'transparent',border:'1px solid '+(showHistory?sc.accent+'44':'rgba(255,255,255,.1)'),borderRadius:8,padding:'3px 8px',fontSize:10,color:showHistory?sc.accent:'#8a80a0',cursor:'pointer',fontFamily:'inherit'}}>📜</button></div></div></div>
 
       {/* Scenes */}
@@ -640,7 +658,7 @@ function App(){
             {s.icon} {s.name}{cainIs&&<span style={{display:'inline-block',width:5,height:5,borderRadius:'50%',background:s.accent,marginLeft:5,verticalAlign:'middle',boxShadow:`0 0 6px ${s.accent}`,animation:'breathe 2s infinite'}}/>}</button>})}</div>
 
       <HistoryPanel show={showHistory} onClose={()=>setShowHistory(false)} messages={msgs} accent={sc.accent}/>
-      <SettingsPanel show={showSettings} onClose={()=>setShowSettings(false)} accent={sc.accent} sessionId={sid} playerId={playerId} bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed} autoVoice={autoVoice} onAutoVoice={setAutoVoice} onLoadSave={applyLoadedSave}/>
+      <SettingsPanel show={showSettings} onClose={()=>setShowSettings(false)} accent={sc.accent} sessionId={sid} playerId={playerId} playerName={playerName} onSwitchAccount={switchAccount} ttsProvider={ttsProvider} voiceError={voiceError} accountNotice={accountNotice} bgmVol={bgmVol} onBgmVol={setBgmVol} textSpeed={textSpeed} onTextSpeed={setTextSpeed} autoVoice={autoVoice} onAutoVoice={setAutoVoice} onLoadSave={applyLoadedSave}/>
       <ShareCard show={showShare} onClose={()=>setShowShare(false)} text={latestReply} emotion={emotion} scene={scene} affection={aff} accent={sc.accent}/>
 
       {/* Portrait + Dialogue */}
@@ -686,7 +704,8 @@ function App(){
               {voiceState==='playing'&&<><span style={{fontSize:10,opacity:.5}}>🔊 播放中</span><button onClick={stopTTS} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>⏹</button></>}
               {voiceState==='loading'&&<span style={{fontSize:10,opacity:.5}}>⏳ 语音加载中…</span>}
               {voiceState==='idle'&&lastAudioUrl.current&&<button onClick={replayTTS} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>🔊 重听</button>}
-              {voiceState==='idle'&&!lastAudioUrl.current&&!autoVoice&&<button onClick={()=>{const last=msgs.filter(m=>m.role==='ai').pop();if(last)playTTS(last.text)}} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>🔊 播放</button>}
+              {voiceState==='idle'&&(!lastAudioUrl.current||voiceError)&&<button onClick={()=>{const last=msgs.filter(m=>m.role==='ai').pop();if(last)playTTS(last.text)}} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit'}}>🔊 播放</button>}
+              {voiceError&&<span style={{fontSize:9,color:'#ff9b8f',maxWidth:150}}>{voiceError}</span>}
               <button onClick={()=>setShowShare(true)} style={{background:'rgba(255,255,255,.05)',border:`1px solid ${sc.accent}33`,borderRadius:12,padding:'4px 10px',fontSize:11,color:sc.accent,cursor:'pointer',fontFamily:'inherit',marginLeft:'auto'}}>↗ 分享</button>
             </div>}</div>}
 

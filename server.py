@@ -1,5 +1,5 @@
 """
-月光罅隙 v4.0 - 剧情导演 + 认知演化
+月光罅隙 v4.1 - 账户存档与语音回归修复
 """
 from flask import Flask, request, jsonify, send_file, send_from_directory, make_response
 from flask_cors import CORS
@@ -39,7 +39,17 @@ DIRECTOR = DirectorRuntime(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "story_events.json"),
     enabled=director_enabled(os.environ.get("NARRATIVE_DIRECTOR_ENABLED", "1")),
 )
-OPENING_REPLY = "（花园中央的日晷无声逆转了一格。Cain抬眼望向那道新出现的刻痕，神色仍旧从容。）罅隙从不接纳误入者。更有意思的是——它似乎认得你。"
+OPENING_REPLY = "（日晷逆转一格。Cain看向新出现的刻痕。）它认得你。"
+
+def supabase_enabled():
+    return bool(SUPABASE_URL and SUPABASE_KEY)
+
+def active_tts_provider():
+    if VOLC_TTS_TOKEN:
+        return "volcengine"
+    if FISH_AUDIO_API_KEY:
+        return "fish"
+    return None
 
 
 # ============ Supabase Helper ============
@@ -189,7 +199,7 @@ CAIN_SYSTEM_PROMPT = """你是 Cain Art（该隐·亚特），月光罅隙的主
 {memory_context}
 
 【回复规则】
-1. 80—180个中文字；先用括号写0—2句安全的动作或环境描写，再写对话。
+1. 通常30—90个中文字；前3轮控制在20—60字。除非玩家明确要求解释，否则不要长篇说明。先用括号写0—1句安全的动作或环境描写，再写对话。
 2. 动作服务于场景和思考，不描写身体亲密或挑逗。
 3. 优先推进一个具体问题：回应、追问、提出证据、承认不确定，或给出可调查的新线索。
 4. 不重复上一轮的句式、意象或自我介绍。
@@ -451,7 +461,7 @@ def load_game(sid, slot="auto"):
     return data
 
 
-APP_VERSION = "4.0"
+APP_VERSION = "4.1"
 
 @app.route('/')
 def index():
@@ -482,6 +492,8 @@ def create_session():
         "emotion": "mysterious",
         "tts_text": convert_for_tts(OPENING_REPLY),
         "director_enabled": DIRECTOR.enabled,
+        "tts_provider": active_tts_provider(),
+        "account_storage": "supabase" if supabase_enabled() else "local",
     })
 
 
@@ -525,7 +537,7 @@ def chat():
                 "model": "deepseek-chat",
                 "messages": api_messages,
                 "temperature": 0.76,
-                "max_tokens": 400,
+                "max_tokens": 240,
                 "top_p": 0.88,
                 "frequency_penalty": 0.55,
                 "presence_penalty": 0.35,
@@ -612,6 +624,108 @@ def chat():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.route('/api/random_event', methods=['POST'])
+def random_event():
+    data = request.get_json(silent=True) or {}
+    sid = data.get("session_id", "default")
+    session = get_session(sid)
+    event = random.choice(RANDOM_EVENTS)
+    session["messages"].append({"role": "assistant", "content": event["text"]})
+    return jsonify({
+        "text": event["text"],
+        "emotion": event["emotion"],
+        "tts_text": convert_for_tts(event["text"]),
+        "affection": session["affection"],
+    })
+
+@app.route('/api/tts', methods=['POST'])
+def tts():
+    data = request.get_json(silent=True) or {}
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"error": "语音文本为空"}), 400
+
+    tts_text = text if data.get("pre_cleaned") else convert_for_tts(text)
+    tts_text = tts_text[:500]
+    if not tts_text:
+        return jsonify({"error": "没有可朗读的文本"}), 400
+
+    provider_errors = []
+    if VOLC_TTS_TOKEN:
+        try:
+            payload = {
+                "app": {"cluster": VOLC_TTS_CLUSTER},
+                "user": {"uid": "moonlight_villa"},
+                "audio": {
+                    "voice_type": VOLC_TTS_SPEAKER,
+                    "encoding": "mp3",
+                    "speed_ratio": 1.0,
+                },
+                "request": {
+                    "reqid": str(uuid.uuid4()),
+                    "text": tts_text,
+                    "operation": "query",
+                },
+            }
+            response = http_req.post(
+                VOLC_TTS_URL,
+                headers={"x-api-key": VOLC_TTS_TOKEN, "Content-Type": "application/json"},
+                json=payload,
+                timeout=25,
+            )
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("code") == 3000 and result.get("data"):
+                    audio_data = base64.b64decode(result["data"])
+                    return send_file(io.BytesIO(audio_data), mimetype="audio/mpeg")
+                provider_errors.append(
+                    f"Volcengine 错误码 {result.get('code', 'unknown')}"
+                )
+            else:
+                provider_errors.append(f"Volcengine HTTP {response.status_code}")
+        except Exception as exc:
+            provider_errors.append(f"Volcengine 请求失败：{type(exc).__name__}")
+
+    if FISH_AUDIO_API_KEY:
+        try:
+            fish_text = tts_text[:250]
+            payload = {
+                "text": fish_text,
+                "format": "mp3",
+                "mp3_bitrate": 64,
+                "prosody": {"speed": 1.0, "volume": 0},
+            }
+            if FISH_VOICE_MODEL_ID:
+                payload["reference_id"] = FISH_VOICE_MODEL_ID
+            response = http_req.post(
+                FISH_AUDIO_TTS_URL,
+                headers={
+                    "Authorization": f"Bearer {FISH_AUDIO_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=20,
+            )
+            if response.status_code == 200:
+                return send_file(io.BytesIO(response.content), mimetype="audio/mpeg")
+            provider_errors.append(f"Fish Audio HTTP {response.status_code}")
+        except Exception as exc:
+            provider_errors.append(f"Fish Audio 请求失败：{type(exc).__name__}")
+
+    if not active_tts_provider():
+        return jsonify({"error": "语音服务未配置"}), 503
+    return jsonify({
+        "error": "语音服务暂时不可用",
+        "details": provider_errors[:2],
+    }), 502
+
+@app.route('/api/tts-status', methods=['GET'])
+def tts_status():
+    return jsonify({
+        "configured": bool(active_tts_provider()),
+        "provider": active_tts_provider(),
+    })
+
 @app.route('/api/scene', methods=['POST'])
 def change_scene():
     data=request.json; sid=data.get('session_id','default'); scene=data.get('scene','garden')
@@ -632,7 +746,7 @@ def auth():
     if not name or len(name)>20: return jsonify({"error":"旅人名须1-20字"}),400
     if not re.match(r'^\d{4}$', code): return jsonify({"error":"暗号须为4位数字"}),400
     
-    if SUPABASE_URL:
+    if supabase_enabled():
         # Check if player exists
         existing = sb("GET", "players", params={"name":f"eq.{name}","select":"id,passcode"})
         if existing and len(existing)>0:
@@ -650,7 +764,7 @@ def auth():
 
 # ============ Supabase Save/Load ============
 def save_game_db(player_id, slot, session):
-    """Save to Supabase."""
+    """Save to Supabase, with a compatibility fallback for the legacy schema."""
     from datetime import datetime, timezone
     data = {
         "player_id": player_id,
@@ -659,9 +773,15 @@ def save_game_db(player_id, slot, session):
         "scene": session["scene"],
         "messages": session["messages"][-60:],
         "triggered_events": pack_triggered_events(session),
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    return sb_upsert("saves", data, "player_id,slot")
+    result = sb_upsert("saves", data, "player_id,slot")
+    if result is None and session.get("director_state"):
+        print("[Save] Retrying without embedded director state for legacy schema compatibility")
+        data["triggered_events"] = session.get("triggered_events", [])
+        result = sb_upsert("saves", data, "player_id,slot")
+    return result
+
 
 def load_game_db(player_id, slot):
     """Load from Supabase."""
@@ -674,23 +794,29 @@ def load_game_db(player_id, slot):
     return None
 
 def list_saves_db(player_id):
-    """List all saves for a player from Supabase."""
+    """List all saves for a player from Supabase; None means the query failed."""
     result = sb("GET", "saves", params={
-        "player_id":f"eq.{player_id}",
-        "select":"slot,affection,scene,updated_at"
+        "player_id": f"eq.{player_id}",
+        "select": "slot,affection,scene,updated_at",
     })
+    if result is None:
+        return None
     saves = {}
-    if result:
-        for s in result:
-            ts = s.get("updated_at")
-            if ts:
-                try:
-                    from datetime import datetime
-                    dt = datetime.fromisoformat(ts.replace('Z','+00:00'))
-                    ts = dt.timestamp()
-                except: pass
-            saves[s["slot"]] = {"timestamp":ts,"affection":s.get("affection"),"scene":s.get("scene")}
+    for item in result:
+        timestamp = item.get("updated_at")
+        if timestamp:
+            try:
+                dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                timestamp = dt.timestamp()
+            except Exception:
+                pass
+        saves[item["slot"]] = {
+            "timestamp": timestamp,
+            "affection": item.get("affection"),
+            "scene": item.get("scene"),
+        }
     return saves
+
 
 @app.route('/api/saves/list', methods=['POST'])
 def list_saves():
@@ -698,9 +824,11 @@ def list_saves():
     pid=data.get('player_id')
     
     # Supabase path
-    if pid and SUPABASE_URL:
+    if pid and supabase_enabled():
         saves = list_saves_db(pid)
-        return jsonify({"saves":saves})
+        if saves is None:
+            return jsonify({"error": "账户已恢复，但云端存档列表读取失败"}), 502
+        return jsonify({"saves": saves, "storage": "supabase"})
     
     # File fallback
     saves={}
@@ -720,7 +848,7 @@ def save():
     s=get_session(sid)
     
     # Supabase path
-    if pid and SUPABASE_URL:
+    if pid and supabase_enabled():
         result = save_game_db(pid, slot, s)
         if result:
             return jsonify({"success":True,"timestamp":time.time()})
@@ -738,7 +866,7 @@ def load():
     pid=data.get('player_id'); slot=data.get('slot','auto')
     
     # Supabase path
-    if pid and SUPABASE_URL:
+    if pid and supabase_enabled():
         d = load_game_db(pid, slot)
         if d:
             # Also restore into memory session
