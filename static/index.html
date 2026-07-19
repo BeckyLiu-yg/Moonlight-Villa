@@ -53,7 +53,7 @@ const EMOTION_MAP={neutral:'平静',gentle:'稳和',playful:'机敏',thoughtful:
 const MOOD_FX={neutral:{f:'none'},gentle:{f:'saturate(1.1) brightness(1.04)'},playful:{f:'saturate(1.12) brightness(1.06)'},thoughtful:{f:'saturate(.95) brightness(.94)'},mysterious:{f:'saturate(.88) brightness(.9) contrast(1.06)'},shy:{f:'saturate(1.08) brightness(1.02)'},sad:{f:'saturate(.8) brightness(.88)'},touched:{f:'saturate(1.1) brightness(1.05)'},cold:{f:'saturate(.75) brightness(.92) contrast(1.08)'},amused:{f:'saturate(1.15) brightness(1.06)'},longing:{f:'saturate(.9) brightness(.93)'},vulnerable:{f:'saturate(.85) brightness(.9)'}};
 
 const api={
-  post:async(u,b)=>{const r=await fetch(API+u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});if(!r.ok){const e=await r.json().catch(()=>({error:'网络错误'}));throw new Error(e.error||'失败')}return r.json()},
+  post:async(u,b)=>{const r=await fetch(API+u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});if(!r.ok){const e=await r.json().catch(()=>({error:'网络错误'}));const details=Array.isArray(e.details)?e.details.join('；'):e.details;throw new Error(details?e.error+'：'+details:e.error||'失败')}return r.json()},
   createSession:()=>api.post('/api/session',{}),
   auth:(name,passcode)=>api.post('/api/auth',{name,passcode}),
   chat:(sid,msg,scene,pid)=>api.post('/api/chat',{session_id:sid,message:msg,scene,player_id:pid}),
@@ -452,7 +452,7 @@ function App(){
             if(saves.saves&&Object.keys(saves.saves).length>0){
               setExistingSaves(saves.saves);
             }else{setExistingSaves({})}
-          }catch(e){setExistingSaves({});setAccountNotice('账户已恢复，但云端存档暂时读取失败：'+e.message)}
+          }catch(e){setExistingSaves({});setAccountNotice(e.message||'云端存档暂时读取失败')}
         }
         setReady(true);
       }catch(e){setError('无法连接服务器')}
@@ -510,7 +510,7 @@ function App(){
       if(saves.saves&&Object.keys(saves.saves).length>0){
         setExistingSaves(saves.saves);setPhase('continue');return;
       }
-    }catch(e){setAccountNotice('账户已登录，但存档列表读取失败：'+e.message)}
+    }catch(e){setAccountNotice(e.message||'存档列表读取失败')}
     enterGame();
   };
 
