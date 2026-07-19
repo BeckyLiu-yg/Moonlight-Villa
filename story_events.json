@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "events": [
     {
       "id": "rift_recognition",
@@ -7,8 +7,8 @@
       "trigger": {
         "min_turn": 1
       },
-      "summary": "The sundial reverses once, suggesting the rift recognizes the visitor rather than admitting an accident.",
-      "response_intent": "acknowledge_anomaly_and_request_last_memory",
+      "summary": "The sundial reverses once. Cain recognizes this as the rift's deliberate identification protocol, not an accident.",
+      "response_intent": "state_known_rule_and_offer_two_testable_hypotheses",
       "line_id": "RIFT_RECOGNITION_01",
       "effects": {
         "add_flags": [
@@ -75,21 +75,24 @@
       "id": "piano_memory_gap",
       "priority": 70,
       "trigger": {
-        "min_turn": 10,
+        "min_turn": 18,
         "scene": "ballroom",
         "requires_flags": [
           "sixth_room_suspected"
-        ]
+        ],
+        "min_relationship": {
+          "trust": 25
+        }
       },
-      "summary": "The piano plays a sequence the host can continue but cannot consciously remember.",
-      "response_intent": "acknowledge_memory_gap_and_revise_prior_certainty",
+      "summary": "The piano plays a forged variation. Cain recalls the authentic score and identifies exactly where the record was altered.",
+      "response_intent": "identify_forgery_and_separate_fact_from_hypothesis",
       "line_id": "PIANO_MEMORY_GAP_01",
       "effects": {
         "add_flags": [
-          "host_memory_unreliable"
+          "record_forgery_suspected"
         ],
         "open_threads": [
-          "which_memories_were_altered"
+          "which_villa_record_was_forged"
         ],
         "relationship_delta": {
           "trust": 2,
@@ -101,27 +104,27 @@
       "id": "archive_crosscheck",
       "priority": 60,
       "trigger": {
-        "min_turn": 12,
+        "min_turn": 22,
         "scene": "library",
         "requires_flags": [
-          "host_memory_unreliable"
+          "record_forgery_suspected"
         ],
         "min_relationship": {
-          "trust": 20
+          "trust": 28
         }
       },
-      "summary": "An archive entry contradicts the host's account and provides evidence for a belief revision.",
-      "response_intent": "record_belief_revision_and_choose_next_investigation",
+      "summary": "Archive provenance reveals a localized forged entry that conflicts with Cain's firsthand account and supports revising one map belief.",
+      "response_intent": "compare_source_provenance_and_revise_one_limited_belief",
       "line_id": "ARCHIVE_CROSSCHECK_01",
       "effects": {
         "add_flags": [
-          "archive_contradiction_found"
+          "archive_forgery_found"
         ],
         "close_threads": [
           "whether_the_sixth_room_was_removed"
         ],
         "open_threads": [
-          "who_altered_the_archive"
+          "who_forged_the_archive"
         ],
         "relationship_delta": {
           "trust": 2,
