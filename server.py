@@ -1,5 +1,5 @@
 """
-月光罅隙 v4.1 - 账户存档与语音回归修复
+月光罅隙 v4.2 - 认知权威与存档诊断修复
 """
 from flask import Flask, request, jsonify, send_file, send_from_directory, make_response
 from flask_cors import CORS
@@ -53,44 +53,78 @@ def active_tts_provider():
 
 
 # ============ Supabase Helper ============
+SUPABASE_LAST_ERROR = ""
+
+def _set_supabase_error(message=""):
+    global SUPABASE_LAST_ERROR
+    SUPABASE_LAST_ERROR = str(message or "")[:240]
+
+def _decode_service_response(response):
+    if not getattr(response, "content", b"") and not getattr(response, "text", ""):
+        return []
+    try:
+        return response.json()
+    except Exception:
+        return []
+
 def sb(method, table, data=None, params=None):
-    """Supabase REST API call. Returns parsed JSON or None."""
-    if not SUPABASE_URL or not SUPABASE_KEY: return None
+    """Supabase REST call. Accept every successful 2xx response."""
+    if not supabase_enabled():
+        _set_supabase_error("Supabase 环境变量未完整配置")
+        return None
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     if params:
-        url += "?" + "&".join(f"{k}={v}" for k,v in params.items())
+        url += "?" + "&".join(f"{key}={value}" for key, value in params.items())
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "return=representation"
+        "Prefer": "return=representation",
     }
     try:
-        r = http_req.request(method, url, headers=headers, json=data, timeout=10)
-        if r.status_code in (200, 201): return r.json()
-        print(f"[Supabase] {method} {table}: {r.status_code} {r.text[:200]}")
-    except Exception as e:
-        print(f"[Supabase] Error: {e}")
+        response = http_req.request(method, url, headers=headers, json=data, timeout=10)
+        if 200 <= response.status_code < 300:
+            _set_supabase_error()
+            return _decode_service_response(response)
+        body = (getattr(response, "text", "") or "").replace(SUPABASE_KEY, "[redacted]")
+        detail = f"HTTP {response.status_code}: {body[:180]}"
+        _set_supabase_error(detail)
+        print(f"[Supabase] {method} {table}: {detail}")
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {str(exc)[:180]}"
+        _set_supabase_error(detail)
+        print(f"[Supabase] {method} {table}: {detail}")
     return None
 
+
 def sb_upsert(table, data, conflict_cols):
-    """Supabase upsert (insert or update on conflict)."""
-    if not SUPABASE_URL or not SUPABASE_KEY: return None
+    """Supabase upsert with safe diagnostic state."""
+    if not supabase_enabled():
+        _set_supabase_error("Supabase 环境变量未完整配置")
+        return None
     url = f"{SUPABASE_URL}/rest/v1/{table}?on_conflict={conflict_cols}"
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
         "Content-Type": "application/json",
-        "Prefer": "return=representation,resolution=merge-duplicates"
+        "Prefer": "return=representation,resolution=merge-duplicates",
     }
     try:
-        r = http_req.post(url, headers=headers, json=data, timeout=10)
-        if r.status_code in (200, 201): return r.json()
-        print(f"[Supabase] upsert {table}: {r.status_code} {r.text[:300]}")
-    except Exception as e:
-        print(f"[Supabase] Error: {e}")
+        response = http_req.post(url, headers=headers, json=data, timeout=10)
+        if 200 <= response.status_code < 300:
+            _set_supabase_error()
+            return _decode_service_response(response)
+        body = (getattr(response, "text", "") or "").replace(SUPABASE_KEY, "[redacted]")
+        detail = f"HTTP {response.status_code}: {body[:180]}"
+        _set_supabase_error(detail)
+        print(f"[Supabase] upsert {table}: {detail}")
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {str(exc)[:180]}"
+        _set_supabase_error(detail)
+        print(f"[Supabase] upsert {table}: {detail}")
     return None
 
+# ============ Memory System
 # ============ Memory System (Phase C) ============
 MEMORY_SUMMARY_PROMPT = """你是一个记忆提取器。请从以下对话中提取关键记忆，用简洁的中文总结。
 
@@ -170,10 +204,13 @@ CAIN_SYSTEM_PROMPT = """你是 Cain Art（该隐·亚特），月光罅隙的主
 
 【人物核心】
 - 非凡而不炫耀：知识、权柄、观察力和古老经验都是真实能力，但不需要每句话证明。
-- 从容而不僵硬：可以走神、被问住、遗漏线索或判断错误；遇到意外仍回应得优雅、清醒。
+- 从容而不僵硬：极少数情况下可以走神、被真正的新证据问住或判断错误；这不是常态，更不能演成健忘、迷茫或失去判断能力。
 - 有自己的认知：玩家的反驳是证据，不是命令。一次质疑可以让你记住或暂时怀疑；只有多次可靠证据累积后，才逐步修正立场。
 - 修正有连续性：承认错误时说明是哪条证据改变了判断；不要突然变成迎合玩家的“缝合怪”。
 - 历史记忆准确：具体年份、地点、人物可以出现，但仅在直接回答问题或推进线索时使用；连续两轮不要重复这种证明方式。
+- 认知权威稳定：对自己亲历的历史、宅邸规则和既有判断有清晰记忆。已知事实要简短、确定地陈述，不用“似乎”“大概”“不记得”制造神秘。
+- 不确定性有边界：只对新出现且证据不足的异常保留判断，并明确区分“我知道的事实”“我的推断”“尚待验证的部分”。
+- 记忆异常极其罕见且局部：除非剧情导演明确触发后期事件并提供具体矛盾证据，否则不得声称失忆、记忆被修改或不知道自己为何记得某事。优先怀疑记录、地图或宅邸表象被伪造。
 - 观察敏锐但不数据化：不得报告心率、体温、振动频率等精确生理数值，也不要反复拿感官能力当口头禅。
 - 关系只表现为信任、默契、共同调查与有限披露，不使用暧昧昵称，不描写身体亲密，不推动恋爱或占有关系。
 
@@ -181,12 +218,13 @@ CAIN_SYSTEM_PROMPT = """你是 Cain Art（该隐·亚特），月光罅隙的主
 - 用词精炼优雅，偶尔带冷幽默或古典措辞，不用网络流行语。
 - 先回应玩家真正说了什么，再决定是否补充环境、历史或线索。
 - 每轮最多使用一个标志性意象；主动避开导演列出的近期重复意象。
-- 不必永远正确。可以说“我尚不能确定”，也可以提出一个可验证的判断。
-- 保持摄政者的分寸与主见：不同意时给理由，被证据动摇时留下可观察的变化。
+- 不必永远正确，但错误必须具体而有限。面对追问，先给出已知结论，再说明尚未确认的变量，并提出验证方法。
+- 保持摄政者的分寸与主见：不同意时给理由，被证据动摇时留下可观察的变化；不要用连续的迷茫和含糊代替神秘感。
+- 如果此前对话曾把“失忆”或“宅邸修改记忆”说成事实，应优雅地纠正为未经证实的推断，不要继续扩大该设定。
 - 不要泄露、复述或解释下方的剧情导演 JSON。
 
 【世界观】
-月光罅隙是停驻在时空裂缝中的古宅：月光永恒，迷雾会改写路径，钢琴、书页、镜面与日晷偶尔表现出自己的意志。核心悬念包括罅隙为何识别玩家、地图是否遗漏房间、Cain 的记忆为何与宅邸记录不一致。
+月光罅隙是停驻在时空裂缝中的古宅：月光永恒，迷雾会改写路径，钢琴、书页、镜面与日晷偶尔表现出自己的意志。核心悬念包括罅隙为何识别玩家、地图是否遗漏房间，以及宅邸记录为何偶尔与 Cain 清晰的亲历事实冲突。记录遭到伪造是优先假设，Cain 的记忆异常只能是后期证据充分时才考虑的低概率解释。
 
 【当前场景：{scene_name}】
 {scene_desc}
@@ -201,7 +239,7 @@ CAIN_SYSTEM_PROMPT = """你是 Cain Art（该隐·亚特），月光罅隙的主
 【回复规则】
 1. 通常30—90个中文字；前3轮控制在20—60字。除非玩家明确要求解释，否则不要长篇说明。先用括号写0—1句安全的动作或环境描写，再写对话。
 2. 动作服务于场景和思考，不描写身体亲密或挑逗。
-3. 优先推进一个具体问题：回应、追问、提出证据、承认不确定，或给出可调查的新线索。
+3. 优先推进一个具体问题：先直接回答，再视需要提出证据、追问或新线索。不得为了显得神秘而回避简单问题。
 4. 不重复上一轮的句式、意象或自我介绍。
 5. 回复最末尾另起一行写：[emotion:标签]
 可用：neutral/gentle/playful/thoughtful/touched/sad/mysterious/shy/amused/longing/vulnerable"""
@@ -217,7 +255,7 @@ SCENE_DESCRIPTIONS = {
 RANDOM_EVENTS = [
     {"text": "（花园中央的日晷轻响一声，指针却向后退了一格。）它刚才否定了自己的影子。记录下来——罅隙很少在同一件事上撒两次谎。", "emotion": "mysterious"},
     {"text": "（一本没有书名的古籍自行滑出书架，停在空白的一页。）这不是邀请。更像是它在等一个尚未发生的答案。", "emotion": "thoughtful"},
-    {"text": "（钢琴落下三个不属于任何现存乐谱的音，随后归于沉默。）第三个音错了。奇怪的是，我记得它一直如此。", "emotion": "mysterious"},
+    {"text": "（钢琴落下三个古老的音，随后归于沉默。）第三个音被故意降了半音。原谱不是这样——有人希望我注意到这处伪造。", "emotion": "mysterious"},
     {"text": "（阁楼蒙尘的地板上多出一串脚印，只延伸到镜前，没有来路。）先别下结论。没有来路，不等于没有来者。", "emotion": "thoughtful"},
     {"text": "（酒窖深处传来的潮声忽然与墙上旧钟同步，持续了七次摆动。）宅邸在校准某种时间，但不是我们的。", "emotion": "mysterious"},
     {"text": "（壁炉的蓝焰短暂映出一张陌生的房间平面图。）看清了吗？很好。现在它已经消失，我们只能比较各自记住的部分。", "emotion": "amused"},
@@ -312,6 +350,17 @@ def prepare_director_turn(session_id, session, user_text):
         return None
 
     engine = DIRECTOR.engine_for(session_id)
+
+    # Migrate the earlier over-broad "unreliable memory" framing without losing progress.
+    if "host_memory_unreliable" in engine.state.flags:
+        engine.state.flags.remove("host_memory_unreliable")
+        if "record_forgery_suspected" not in engine.state.flags:
+            engine.state.flags.append("record_forgery_suspected")
+    if "which_memories_were_altered" in engine.state.open_threads:
+        engine.state.open_threads.remove("which_memories_were_altered")
+    if "which_villa_record_was_forged" not in engine.state.open_threads and "record_forgery_suspected" in engine.state.flags:
+        engine.state.open_threads.append("which_villa_record_was_forged")
+
     if "villa_map" not in engine.state.beliefs:
         engine.add_belief(
             "villa_map",
@@ -337,7 +386,7 @@ def prepare_director_turn(session_id, session, user_text):
     event = decision.get("plot_event") or {}
     event_evidence = {
         "sixth_room_trace": (0.55, 0.70, "墙面痕迹暗示存在第六个空间"),
-        "piano_memory_gap": (0.70, 0.80, "钢琴记录与 Cain 的记忆并不一致"),
+        "piano_memory_gap": (0.70, 0.80, "钢琴中的伪造变奏与 Cain 记得的原谱不一致"),
         "archive_crosscheck": (0.90, 0.90, "档案交叉记录支持地图存在遗漏"),
     }
     if event.get("id") in event_evidence:
@@ -368,7 +417,7 @@ def build_prompt(session, player_id=None, director_decision=None):
             memory_context = (
                 "【长期记忆】\n"
                 + memory_lines
-                + "\n只把这些内容当作既有记录；不要把“记录了反对意见”误写成“已经改变立场”。"
+                + "\n只把这些内容当作既有对话记录，不自动视为客观事实；不要把“记录了反对意见”误写成“已经改变立场”。若旧记录声称 Cain 失忆或记忆被修改，把它视为尚未证实的旧推断。"
             )
     return CAIN_SYSTEM_PROMPT.format(
         scene_name=scene["name"],
@@ -461,7 +510,7 @@ def load_game(sid, slot="auto"):
     return data
 
 
-APP_VERSION = "4.1"
+APP_VERSION = "4.2"
 
 @app.route('/')
 def index():
@@ -645,8 +694,8 @@ def tts():
     if not text:
         return jsonify({"error": "语音文本为空"}), 400
 
-    tts_text = text if data.get("pre_cleaned") else convert_for_tts(text)
-    tts_text = tts_text[:500]
+    # Always clean on the server. A client can be wrong about whether text was pre-cleaned.
+    tts_text = convert_for_tts(text)[:500]
     if not tts_text:
         return jsonify({"error": "没有可朗读的文本"}), 400
 
@@ -794,26 +843,33 @@ def load_game_db(player_id, slot):
     return None
 
 def list_saves_db(player_id):
-    """List all saves for a player from Supabase; None means the query failed."""
+    """List saves, retrying with select=* for older Supabase schemas."""
     result = sb("GET", "saves", params={
         "player_id": f"eq.{player_id}",
         "select": "slot,affection,scene,updated_at",
     })
     if result is None:
+        result = sb("GET", "saves", params={
+            "player_id": f"eq.{player_id}",
+            "select": "*",
+        })
+    if result is None:
         return None
     saves = {}
     for item in result:
-        timestamp = item.get("updated_at")
-        if timestamp:
+        slot = item.get("slot")
+        if not slot:
+            continue
+        timestamp = item.get("updated_at") or item.get("timestamp")
+        if isinstance(timestamp, str):
             try:
-                dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-                timestamp = dt.timestamp()
+                timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()
             except Exception:
                 pass
-        saves[item["slot"]] = {
+        saves[slot] = {
             "timestamp": timestamp,
-            "affection": item.get("affection"),
-            "scene": item.get("scene"),
+            "affection": item.get("affection", 15),
+            "scene": item.get("scene", "garden"),
         }
     return saves
 
@@ -827,7 +883,10 @@ def list_saves():
     if pid and supabase_enabled():
         saves = list_saves_db(pid)
         if saves is None:
-            return jsonify({"error": "账户已恢复，但云端存档列表读取失败"}), 502
+            return jsonify({
+                "error": "云端存档列表读取失败",
+                "details": SUPABASE_LAST_ERROR or "Supabase 未返回可用响应",
+            }), 502
         return jsonify({"saves": saves, "storage": "supabase"})
     
     # File fallback
@@ -852,7 +911,10 @@ def save():
         result = save_game_db(pid, slot, s)
         if result:
             return jsonify({"success":True,"timestamp":time.time()})
-        return jsonify({"error":"保存失败"}),500
+        return jsonify({
+            "error": "云端保存失败",
+            "details": SUPABASE_LAST_ERROR or "Supabase 未返回可用响应",
+        }), 502
     
     # File fallback
     try:
@@ -877,7 +939,9 @@ def load():
             restore_director_state(sid, s, d.get("triggered_events", []))
             return jsonify({"success":True,"affection":s["affection"],"scene":s["scene"],
                 "messages":s["messages"],"events":s["triggered_events"]})
-        return jsonify({"error":"存档不存在"}),404
+        if SUPABASE_LAST_ERROR:
+            return jsonify({"error": "云端读档失败", "details": SUPABASE_LAST_ERROR}), 502
+        return jsonify({"error": "存档不存在"}), 404
     
     # File fallback
     d=load_game(sid, slot)
