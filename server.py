@@ -244,6 +244,11 @@ CAIN_SYSTEM_PROMPT = """你是 Cain Art（该隐·亚特），月光罅隙的主
 5. 回复最末尾另起一行写：[emotion:标签]
 可用：neutral/gentle/playful/thoughtful/touched/sad/mysterious/shy/amused/longing/vulnerable"""
  
+
+PREMATURE_MEMORY_CLAIM = re.compile(
+    r"不记得|失忆|不知道.{0,10}为何.{0,6}记得|记忆.{0,12}(?:修改|篡改|修剪|删除)"
+)
+
 SCENE_DESCRIPTIONS = {
     "garden": {"name": "月光花园", "desc": "月光如水银倾泻在白色玫瑰和夜来香上。石质凉亭覆满发光藤蔓，萤火虫在花丛间游弋。花园中央古老日晷的指针永远停在午夜。空气里是玫瑰露和泥土的清冷香气。"},
     "library": {"name": "藏书阁", "desc": "三层书架密密排列，古籍上浮动淡金色光芒。壁炉中永不熄灭的幽蓝火焰温暖不灼人。空气中是旧书页和薄荷的气息。只有一把天鹅绒扶手椅——千年来从不需要第二把。"},
@@ -603,6 +608,9 @@ def chat():
         quality_issues = []
         if DIRECTOR.enabled:
             quality_issues = DIRECTOR.engine_for(sid).quality_issues(reply)
+            director_turn = (session.get("director_state") or {}).get("turn", 0)
+            if director_turn < 18 and PREMATURE_MEMORY_CLAIM.search(reply):
+                quality_issues.append("premature_memory_loss_claim")
         if quality_issues:
             repair = http_req.post(
                 DEEPSEEK_API_URL,
@@ -617,7 +625,9 @@ def chat():
                             "role": "system",
                             "content": (
                                 "你是文字修订器。保留原回答的事实和气质，但移除精确生理测量、"
-                                "近期重复意象、暧昧昵称、身体亲密和关系升级。让 Cain 仍然非凡、"
+                                "近期重复意象、暧昧昵称、身体亲密和关系升级。若原文在没有剧情证据时"
+                                "声称失忆、记忆被修改或不知道自己为何记得，改写为：先陈述 Cain 确知的"
+                                "事实，再把未知部分标为有限假设，并给出验证方向。让 Cain 非凡、理性、"
                                 "优雅、有主见。不要解释修改过程，保留末尾 emotion 标签。"
                             ),
                         },
