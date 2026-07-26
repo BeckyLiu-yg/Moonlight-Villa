@@ -1,5 +1,5 @@
 """
-月光罅隙 v4.2 - 认知权威与存档诊断修复
+月光罅隙 v4.3 - DeepSeek V4 模型兼容修复
 """
 from flask import Flask, request, jsonify, send_file, send_from_directory, make_response
 from flask_cors import CORS
@@ -12,6 +12,7 @@ CORS(app)
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
 # --- Volcengine TTS (声音复刻 ICL 2.0 via HTTP V1 API) ---
 VOLC_TTS_APPID = os.environ.get("VOLC_TTS_APPID", "6909792087")
@@ -176,7 +177,7 @@ def generate_memory(player_id, session):
     try:
         r = http_req.post(DEEPSEEK_API_URL,
             headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-            json={"model": "deepseek-chat", "messages": [
+            json={"model": DEEPSEEK_MODEL, "thinking": {"type": "disabled"}, "messages": [
                 {"role": "system", "content": MEMORY_SUMMARY_PROMPT},
                 {"role": "user", "content": f"以下是最近的对话记录：\n\n{conv_text}\n\n请提取关键记忆。"}
             ], "temperature": 0.3, "max_tokens": 400}, timeout=20)
@@ -515,7 +516,7 @@ def load_game(sid, slot="auto"):
     return data
 
 
-APP_VERSION = "4.2"
+APP_VERSION = "4.3"
 
 @app.route('/')
 def index():
@@ -546,6 +547,7 @@ def create_session():
         "emotion": "mysterious",
         "tts_text": convert_for_tts(OPENING_REPLY),
         "director_enabled": DIRECTOR.enabled,
+        "ai_model": DEEPSEEK_MODEL,
         "tts_provider": active_tts_provider(),
         "account_storage": "supabase" if supabase_enabled() else "local",
     })
@@ -588,7 +590,7 @@ def chat():
                 "Content-Type": "application/json",
             },
             json={
-                "model": "deepseek-chat",
+                "model": DEEPSEEK_MODEL, "thinking": {"type": "disabled"},
                 "messages": api_messages,
                 "temperature": 0.76,
                 "max_tokens": 240,
@@ -619,7 +621,7 @@ def chat():
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "deepseek-chat",
+                    "model": DEEPSEEK_MODEL, "thinking": {"type": "disabled"},
                     "messages": [
                         {
                             "role": "system",
