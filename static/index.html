@@ -123,8 +123,8 @@ function Particles({sceneKey,accent}){const ps=useMemo(()=>{const cfg={garden:['
   return Array.from({length:n},(_,i)=>({id:i,ch:ch[i%ch.length],x:Math.random()*100,y:Math.random()*100,sz:5+Math.random()*10,dl:Math.random()*4,dur:3+Math.random()*5,op:.1+Math.random()*.2}))},[sceneKey]);
   return <div style={{position:'absolute',inset:0,pointerEvents:'none',overflow:'hidden'}}>{ps.map(p=><span key={p.id} style={{position:'absolute',left:p.x+'%',top:p.y+'%',fontSize:p.sz,opacity:p.op,color:accent,animation:`float ${p.dur}s ${p.dl}s infinite ease-in-out`}}>{p.ch}</span>)}</div>}
 
-function AffectionBar({value,accent}){const l=value<20?'戒备':value<40?'观察':value<60?'信任':value<80?'共识':'同盟';
-  return <div title={'信任 '+value+'/100'} style={{display:'flex',alignItems:'center',gap:6}}><span style={{fontSize:13,opacity:.8}}>✦</span>
+function AffectionBar({value,accent}){const l=value<25?'戒备':value<40?'留意':value<55?'认可':value<70?'信赖':value<85?'牵念':'选择';
+  return <div title={'好感 '+value+'/100'} style={{display:'flex',alignItems:'center',gap:6}}><span style={{fontSize:13,opacity:.8}}>✦</span>
     <div style={{position:'relative',width:56,height:4,borderRadius:2,background:'rgba(255,255,255,.08)',overflow:'hidden'}}>
       <div style={{width:value+'%',height:'100%',borderRadius:2,background:`linear-gradient(90deg,${accent}66,${accent})`,transition:'width 1.2s'}}/></div>
     <span style={{fontSize:10,opacity:.5,letterSpacing:1}}>{l}</span></div>}
@@ -142,7 +142,7 @@ function OpeningScreen({onEnter}){const[p,setP]=useState(0);
 
 function ContinueScreen({saves,onContinue,onNewGame}){
   const SCENE_NAMES={garden:'月光花园',library:'藏书阁',ballroom:'星光舞厅',attic:'秘密阁楼',basement:'地下酒窖'};
-  const AFF_LABEL=v=>v<20?'戒备':v<40?'观察':v<60?'信任':v<80?'共识':'同盟';
+  const AFF_LABEL=v=>v<25?'戒备':v<40?'留意':v<55?'认可':v<70?'信赖':v<85?'牵念':'选择';
   // Find most recent save
   const slots=Object.entries(saves).sort((a,b)=>(b[1].timestamp||0)-(a[1].timestamp||0));
   const latest=slots[0];
@@ -386,14 +386,10 @@ function HistoryPanel({show,onClose,messages,accent}){const endRef=useRef(null);
       <div ref={endRef}/></div></div>}
 
 /* ============ MAIN ============ */
-const APP_VER = "3.5";
-// Clear stale localStorage from pre-auth versions (runs once on module load)
+const APP_VER = "4.4";
+// Version upgrades must never erase account identity or save pointers.
 (function(){
-  const storedVer=localStorage.getItem('moonlight_ver');
-  if(storedVer!==APP_VER){
-    localStorage.removeItem('moonlight_pid');
-    localStorage.removeItem('moonlight_name');
-    localStorage.removeItem('moonlight_sid');
+  if(localStorage.getItem('moonlight_ver')!==APP_VER){
     localStorage.setItem('moonlight_ver',APP_VER);
   }
 })();
@@ -435,7 +431,7 @@ function App(){
       // Always create a server session for in-memory state
       try{
         const d=await api.createSession();
-        setSid(d.session_id);setAff(d.affection);setTtsProvider(d.tts_provider||null);
+        setSid(d.session_id);setAff(d.affection);setCainScene(d.cain_scene||'garden');setTtsProvider(d.tts_provider||null);
         if(d.opening_reply){
           setMsgs([{role:'ai',text:d.opening_reply,emotion:d.emotion||'mysterious'}]);
           setLatestReply(d.opening_reply);
@@ -534,7 +530,7 @@ function App(){
   const handleNewGame=async()=>{
     try{
       const d=await api.createSession();
-      setSid(d.session_id);setAff(d.affection);setTtsProvider(d.tts_provider||null);
+      setSid(d.session_id);setAff(d.affection);setCainScene(d.cain_scene||'garden');setTtsProvider(d.tts_provider||null);
       localStorage.setItem('moonlight_sid',d.session_id);
       const opening=d.opening_reply||'';
       setMsgs(opening?[{role:'ai',text:opening,emotion:d.emotion||'mysterious'}]:[]);
@@ -547,7 +543,7 @@ function App(){
 
   // Apply loaded save data (from continue screen or settings panel)
   const applyLoadedSave=(d)=>{
-    setAff(d.affection||15);setScene(d.scene||'garden');setCainScene(d.scene||'garden');
+    setAff(d.affection??15);setScene(d.scene||'garden');setCainScene(d.cain_scene||d.scene||'garden');
     const loaded=(d.messages||[]).map(m=>({role:m.role==='assistant'?'ai':m.role,text:m.content||m.text||''}));
     setMsgs(loaded);
     const lastCain=[...loaded].reverse().find(m=>m.role==='ai');
@@ -597,18 +593,24 @@ function App(){
 
   const stopTTS=useCallback(()=>{if(voiceRef.current){voiceRef.current.pause();voiceRef.current=null}setVoiceState('idle')},[]);
 
-  const send=async()=>{const msg=input.trim();if(!msg||loading||!sid)return;
-    markActivity(); // reset idle timer
-    // If Cain isn't here, your voice draws him to this scene
-    if(!cainHere)summonCain(scene);
+  const send=async()=>{const msg=input.trim();if(!msg||loading||!sid||!cainHere)return;
+    markActivity();
+    const previousReply=latestReply;
     setInput('');setError(null);setMsgs(p=>[...p,{role:'user',text:msg}]);setLatestReply('');setAudioDur(null);setLoading(true);stopTTS();
     try{
       const d=await api.chat(sid,msg,scene,playerId);
-      setEmotion(d.emotion||'neutral');setAff(d.affection||aff);
-      setMsgs(p=>[...p,{role:'ai',text:d.reply,emotion:d.emotion}]);
-      
+      setEmotion(d.emotion||'neutral');setAff(d.affection??aff);
+      const action=d.cain_action;
+      setMsgs(p=>{
+        const next=[...p,{role:'ai',text:d.reply,emotion:d.emotion}];
+        if(action?.target_scene&&action.target_scene!==scene){
+          const destination=SCENES[action.target_scene]?.name||action.target_scene;
+          next.push({role:'system',text:`Cain 已前往${destination}：${action.reason||'继续调查'}`});
+        }
+        return next;
+      });
+
       if(autoVoice&&d.tts_text){
-        // Start TTS fetch, get duration, then set reply to start synced typewriter
         const dur=await playTTS(d.tts_text);
         setAudioDur(dur);
         setLatestReply(d.reply);
@@ -616,7 +618,22 @@ function App(){
         setAudioDur(null);
         setLatestReply(d.reply);
       }
-    }catch(e){setError(e.message);setMsgs(p=>[...p,{role:'system',text:'⚠ '+e.message}])}finally{setLoading(false)}};
+      if(action?.target_scene){
+        setCainArriving(false);
+        setCainScene(action.target_scene);
+      }else if(d.cain_scene){
+        setCainScene(d.cain_scene);
+      }
+    }catch(e){
+      setError(e.message);
+      setInput(msg);
+      setLatestReply(previousReply);
+      setMsgs(p=>{
+        const next=[...p];
+        if(next.length&&next[next.length-1].role==='user'&&next[next.length-1].text===msg)next.pop();
+        return next;
+      });
+    }finally{setLoading(false)}};
 
   const switchScene=async(key)=>{if(key===scene||!sid)return;markActivity();setScene(key);setSceneKey(k=>k+1);
     if(cainTimerRef.current){clearTimeout(cainTimerRef.current);cainTimerRef.current=null}
@@ -693,7 +710,7 @@ function App(){
           {hidePortrait&&hasSpoken&&cainHere&&<div style={{width:30,height:30,borderRadius:'50%',overflow:'hidden',border:`1px solid ${sc.accent}33`,float:'left',marginRight:10,marginTop:2}}>
             <img src="/static/cain.jpg" alt="" style={{width:'135%',height:'135%',objectFit:'cover',objectPosition:'50% 18%',position:'relative',top:'-5%',left:'-17%'}}/></div>}
 
-          {error&&!loading&&msgs.length===0&&<div style={{color:'#ff7070',fontSize:12,textAlign:'center',padding:12}}>⚠ {error}</div>}
+          {error&&!loading&&<div style={{color:'#ff9b8f',fontSize:11,textAlign:'center',padding:10,background:'rgba(255,80,80,.06)',borderRadius:10}}>⚠ {error}<div style={{fontSize:9,opacity:.65,marginTop:4}}>消息已放回输入框，本轮剧情没有推进</div></div>}
           {loading&&<div style={{fontSize:fs,lineHeight:2,color:'#9088a0',fontStyle:'italic'}}><span style={{opacity:.5}}>Cain 正在思考</span><span className="loading-dots" style={{opacity:.5}}/></div>}
           
           {!loading&&latestReply&&cainHere&&<div onClick={!tw.done?tw.skip:undefined} style={{cursor:!tw.done?'pointer':'default'}}>
@@ -713,8 +730,11 @@ function App(){
             <div style={{fontSize:16,marginBottom:8,animation:'float 3s infinite',color:sc.accent+'88'}}>✦</div>
             <div style={{fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",fontSize:14,letterSpacing:1}}>花园日晷刚刚逆行了一格……</div>
             <div style={{fontSize:11,opacity:.5,marginTop:6}}>从日晷、地图或第六个房间开始调查</div></div>}
-          {!loading&&!cainHere&&hasSpoken&&<div style={{fontSize:fs,lineHeight:2.2,color:'#5a5070',textAlign:'center',padding:'30px 0',fontStyle:'italic'}}>
-            <div style={{fontSize:14,opacity:.4,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",letterSpacing:1}}>走廊尽头仍有一组尚未解释的脚步声。</div></div>}
+          {!loading&&latestReply&&!cainHere&&<div style={{fontSize:fs,lineHeight:2,color:'#a098b0',textAlign:'left',padding:'18px',fontStyle:'italic',border:'1px solid rgba(255,255,255,.05)',borderRadius:14}}>
+            <div>{latestReply}</div>
+            <div style={{fontSize:10,opacity:.5,marginTop:10,textAlign:'right'}}>Cain 现位于 {SCENES[cainScene]?.name||cainScene}</div></div>}
+          {!loading&&!latestReply&&!cainHere&&hasSpoken&&<div style={{fontSize:fs,lineHeight:2.2,color:'#5a5070',textAlign:'center',padding:'30px 0',fontStyle:'italic'}}>
+            <div style={{fontSize:14,opacity:.4,fontFamily:"'Cormorant Garamond','Noto Serif SC',serif",letterSpacing:1}}>Cain 不在这里。地点栏的光点标出了他的位置。</div></div>}
           {!ready&&!error&&<div style={{fontSize:fs,color:'#7a7090',textAlign:'center'}}>正在连接<span className="loading-dots"/></div>}
         </div></div>
 
@@ -722,9 +742,9 @@ function App(){
       <div style={{padding:`8px ${px}px 10px`,paddingBottom:`calc(10px + env(safe-area-inset-bottom))`}}>
         <div style={{display:'flex',gap:8,alignItems:'center',background:'rgba(12,11,20,.55)',backdropFilter:'blur(18px)',borderRadius:22,border:`1px solid ${inputFocused?sc.accent+'40':'rgba(255,255,255,.06)'}`,padding:'6px 6px 6px 18px',transition:'all .3s',boxShadow:inputFocused?`0 0 20px ${sc.accent}10`:'none'}}>
           <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}}
-            onFocus={()=>setInputFocused(true)} onBlur={()=>setInputFocused(false)} placeholder={!cainHere?'发送消息，请求 Cain 前往当前场景…':loading?'Cain 正在回应…':'向 Cain 提问或提交线索…'} disabled={loading||!ready}
+            onFocus={()=>setInputFocused(true)} onBlur={()=>setInputFocused(false)} placeholder={!cainHere?`Cain 已前往${SCENES[cainScene]?.name||'别处'}，选择地点跟上他…`:loading?'Cain 正在回应…':'向 Cain 提问或提交线索…'} disabled={loading||!ready||!cainHere}
             style={{flex:1,background:'transparent',border:'none',outline:'none',color:'#e8e0f0',fontSize:fs,fontFamily:'inherit',lineHeight:1.4}}/>
-          <button onClick={send} disabled={loading||!input.trim()||!ready} style={{width:40,height:40,borderRadius:16,border:'none',
+          <button onClick={send} disabled={loading||!input.trim()||!ready||!cainHere} style={{width:40,height:40,borderRadius:16,border:'none',
             background:input.trim()&&!loading?`linear-gradient(135deg,${sc.accent},${sc.accent}88)`:'rgba(255,255,255,.04)',color:input.trim()&&!loading?'#fff':'#444',fontSize:16,
             cursor:input.trim()&&!loading?'pointer':'default',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .3s',flexShrink:0,
             boxShadow:input.trim()&&!loading?`0 4px 16px ${sc.accent}33`:'none'}}>➤</button></div></div>
