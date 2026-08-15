@@ -1,45 +1,47 @@
 {
-  "version": 2,
+  "version": 3,
+  "canon": {
+    "immutable": [
+      "月光罅隙中只有玩家与 Cain 两个有意识的人物，Cain 是唯一的长期居住者。",
+      "不存在隐藏住客、第三位访客、前世替身、旧爱或幕后操纵者。",
+      "Cain 的长期记忆准确连续；异常来自空间规则，而不是失忆。",
+      "玩家因主动跨过不可能存在的门而进入罅隙，不因血缘、转世或命定身份。",
+      "所谓第六房间实际是一次性出口，不是可居住的房间。",
+      "正常离开会切断返回坐标；只有 Cain 主动建立锚点才可能回来。"
+    ],
+    "disclosure_rule": "只可把当前事件及 known_facts 中已经揭示的内容作为 Cain 确知的事实；其余作者真相不得提前泄露。",
+    "prohibited_inventions": [
+      "新增人物或隐藏居民",
+      "访客日志、前任访客或与玩家相似的旧人",
+      "未经事件定义的具体年代、卷数、姓名、手迹与历史事件",
+      "把猜测说成已经调查确认的事实"
+    ]
+  },
   "events": [
     {
       "id": "rift_recognition",
       "priority": 100,
       "trigger": {
-        "min_turn": 1
+        "min_turn": 1,
+        "scene": "garden"
       },
-      "summary": "The sundial reverses once. Cain recognizes this as the rift's deliberate identification protocol, not an accident.",
-      "response_intent": "state_known_rule_and_offer_two_testable_hypotheses",
-      "line_id": "RIFT_RECOGNITION_01",
+      "summary": "日晷在玩家主动跨过门槛后逆转。Cain 确认这是外部选择进入罅隙后引发的空间响应，但尚不知道为何此刻发生。",
+      "response_intent": "先陈述已确认现象，再说明要去藏书阁核对封存地图；不要编造访客历史。",
+      "line_id": "RIFT_RECOGNITION_02",
+      "cain_action": {
+        "type": "move",
+        "target_scene": "library",
+        "reason": "核对封存地图与五个稳定空间"
+      },
       "effects": {
         "add_flags": [
-          "rift_recognized_visitor"
+          "entry_choice_confirmed"
+        ],
+        "reveal_facts": [
+          "玩家主动跨过门槛后，日晷才发生逆转；目前只能确认空间回应了这次选择。"
         ],
         "open_threads": [
-          "why_the_rift_recognizes_the_visitor"
-        ],
-        "relationship_delta": {
-          "disclosure": 1
-        }
-      }
-    },
-    {
-      "id": "sundial_echo",
-      "priority": 90,
-      "trigger": {
-        "min_turn": 4,
-        "requires_flags": [
-          "rift_recognized_visitor"
-        ]
-      },
-      "summary": "The sundial repeats a phrase recorded earlier, implying that the villa is learning or remembering.",
-      "response_intent": "offer_investigation_or_questioning_choice",
-      "line_id": "SUNDIAL_ECHO_01",
-      "effects": {
-        "add_flags": [
-          "sundial_echo_seen"
-        ],
-        "open_threads": [
-          "who_or_what_records_conversations"
+          "why_the_rift_opened_now"
         ],
         "relationship_delta": {
           "trust": 1,
@@ -48,86 +50,204 @@
       }
     },
     {
-      "id": "sixth_room_trace",
-      "priority": 80,
+      "id": "five_stable_spaces",
+      "priority": 90,
       "trigger": {
-        "min_turn": 7,
-        "requires_flags": [
-          "sundial_echo_seen"
-        ]
-      },
-      "summary": "A reflection briefly reveals a sixth room that contradicts the known map of the villa.",
-      "response_intent": "compare_conflicting_evidence_without_forcing_a_conclusion",
-      "line_id": "SIXTH_ROOM_TRACE_01",
-      "effects": {
-        "add_flags": [
-          "sixth_room_suspected"
-        ],
-        "open_threads": [
-          "whether_the_sixth_room_was_removed"
-        ],
-        "relationship_delta": {
-          "disclosure": 2
-        }
-      }
-    },
-    {
-      "id": "piano_memory_gap",
-      "priority": 70,
-      "trigger": {
-        "min_turn": 18,
-        "scene": "ballroom",
-        "requires_flags": [
-          "sixth_room_suspected"
-        ],
-        "min_relationship": {
-          "trust": 25
-        }
-      },
-      "summary": "The piano plays a forged variation. Cain recalls the authentic score and identifies exactly where the record was altered.",
-      "response_intent": "identify_forgery_and_separate_fact_from_hypothesis",
-      "line_id": "PIANO_MEMORY_GAP_01",
-      "effects": {
-        "add_flags": [
-          "record_forgery_suspected"
-        ],
-        "open_threads": [
-          "which_villa_record_was_forged"
-        ],
-        "relationship_delta": {
-          "trust": 2,
-          "disclosure": 2
-        }
-      }
-    },
-    {
-      "id": "archive_crosscheck",
-      "priority": 60,
-      "trigger": {
-        "min_turn": 22,
+        "min_turn": 2,
         "scene": "library",
         "requires_flags": [
-          "record_forgery_suspected"
+          "entry_choice_confirmed"
         ],
-        "min_relationship": {
-          "trust": 28
-        }
+        "intents": [
+          "investigate",
+          "question",
+          "challenge"
+        ],
+        "keywords_any": [
+          "地图",
+          "书",
+          "记录",
+          "房间",
+          "五个",
+          "第六",
+          "日晷"
+        ]
       },
-      "summary": "Archive provenance reveals a localized forged entry that conflicts with Cain's firsthand account and supports revising one map belief.",
-      "response_intent": "compare_source_provenance_and_revise_one_limited_belief",
-      "line_id": "ARCHIVE_CROSSCHECK_01",
+      "summary": "Cain 检查自己封存的原始地图：纸张、墨迹与封印完整，只记录五个稳定空间，没有被擦除的第六室。",
+      "response_intent": "给出检查结果和证据边界；判断第六处更可能是临时结构，并前往舞厅验证空间节律。",
+      "line_id": "FIVE_STABLE_SPACES_01",
+      "cain_action": {
+        "type": "move",
+        "target_scene": "ballroom",
+        "reason": "用钢琴的固定节律验证临时空间"
+      },
       "effects": {
         "add_flags": [
-          "archive_forgery_found"
+          "five_spaces_verified"
         ],
-        "close_threads": [
-          "whether_the_sixth_room_was_removed"
+        "reveal_facts": [
+          "Cain 封存的原始地图只有五个稳定空间，纸张、墨迹与封印均无删改痕迹。"
         ],
         "open_threads": [
-          "who_forged_the_archive"
+          "what_the_sixth_outline_is"
         ],
         "relationship_delta": {
           "trust": 2,
+          "rapport": 2,
+          "disclosure": 1
+        }
+      }
+    },
+    {
+      "id": "silent_sixth_beat",
+      "priority": 80,
+      "trigger": {
+        "min_turn": 4,
+        "scene": "ballroom",
+        "requires_flags": [
+          "five_spaces_verified"
+        ],
+        "intents": [
+          "investigate",
+          "question",
+          "challenge"
+        ],
+        "keywords_any": [
+          "钢琴",
+          "乐谱",
+          "声音",
+          "节律",
+          "五个",
+          "第六",
+          "验证"
+        ]
+      },
+      "summary": "钢琴重复五个稳定音，随后出现长度固定的休止。Cain 确认第六位置不是音符，而是让结构转换的间隔。",
+      "response_intent": "区分观察与推断：五音和休止已确认；休止对应出口仍需镜面验证。Cain 前往阁楼。",
+      "line_id": "SILENT_SIXTH_BEAT_01",
+      "cain_action": {
+        "type": "move",
+        "target_scene": "attic",
+        "reason": "用不占实体面积的镜面轮廓验证出口假设"
+      },
+      "effects": {
+        "add_flags": [
+          "sixth_interval_detected"
+        ],
+        "reveal_facts": [
+          "钢琴对应五个稳定空间的是五个音；第六位置是一段固定休止，而非第六个音。"
+        ],
+        "open_threads": [
+          "whether_the_sixth_is_a_threshold"
+        ],
+        "relationship_delta": {
+          "trust": 2,
+          "rapport": 1,
+          "disclosure": 1
+        }
+      }
+    },
+    {
+      "id": "threshold_reflection",
+      "priority": 70,
+      "trigger": {
+        "min_turn": 6,
+        "scene": "attic",
+        "requires_flags": [
+          "sixth_interval_detected"
+        ],
+        "intents": [
+          "investigate",
+          "question",
+          "challenge"
+        ],
+        "keywords_any": [
+          "镜子",
+          "镜面",
+          "轮廓",
+          "出口",
+          "门",
+          "第六",
+          "休止"
+        ]
+      },
+      "summary": "镜面显出第六道门形轮廓，但其后没有内部面积；它只连接罅隙内外。Cain 据此确认所谓第六房间是出口。",
+      "response_intent": "明确宣布结论，不制造第三者；随后主动去地下酒窖检查维持罅隙的锚点。",
+      "line_id": "THRESHOLD_REFLECTION_01",
+      "cain_action": {
+        "type": "move",
+        "target_scene": "basement",
+        "reason": "检查出口开启后返回坐标是否仍可保留"
+      },
+      "effects": {
+        "add_flags": [
+          "exit_threshold_confirmed"
+        ],
+        "reveal_facts": [
+          "镜中的第六道轮廓没有内部空间，只连接罅隙内外；所谓第六房间实际是出口。"
+        ],
+        "close_threads": [
+          "what_the_sixth_outline_is",
+          "whether_the_sixth_is_a_threshold"
+        ],
+        "open_threads": [
+          "whether_return_can_be_anchored"
+        ],
+        "relationship_delta": {
+          "trust": 2,
+          "rapport": 1,
+          "disclosure": 2
+        }
+      }
+    },
+    {
+      "id": "return_anchor_rule",
+      "priority": 60,
+      "trigger": {
+        "min_turn": 8,
+        "scene": "basement",
+        "requires_flags": [
+          "exit_threshold_confirmed"
+        ],
+        "min_relationship": {
+          "trust": 20
+        },
+        "intents": [
+          "investigate",
+          "question",
+          "challenge",
+          "share"
+        ],
+        "keywords_any": [
+          "回来",
+          "返回",
+          "离开",
+          "出口",
+          "锚",
+          "坐标",
+          "酒窖",
+          "代价"
+        ]
+      },
+      "summary": "锚点记录证明：玩家正常离开后坐标会消失。Cain 有能力主动保留返回锚点，但这必须是他本人的选择，无法由玩家强迫。",
+      "response_intent": "如实说明单向出口与返回条件；不要现在替 Cain 做最终感情选择。",
+      "line_id": "RETURN_ANCHOR_RULE_01",
+      "effects": {
+        "add_flags": [
+          "return_rule_known"
+        ],
+        "reveal_facts": [
+          "正常离开会切断玩家返回罅隙的坐标；Cain 主动建立锚点是唯一已知例外。"
+        ],
+        "close_threads": [
+          "whether_return_can_be_anchored"
+        ],
+        "open_threads": [
+          "whether_cain_will_choose_to_anchor_the_player"
+        ],
+        "relationship_delta": {
+          "trust": 3,
+          "rapport": 1,
           "disclosure": 3
         }
       }
