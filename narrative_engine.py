@@ -40,6 +40,13 @@ PRECISE_BIOMETRIC = re.compile(
     re.I,
 )
 
+UNSUPPORTED_LORE = re.compile(
+    r"第三(?:个|位|人)|另(?:一|有)(?:个|位).{0,8}(?:住客|访客|居民|人)|"
+    r"仍有.{0,8}(?:住客|访客|居民|人).{0,4}(?:住|留|藏)|"
+    r"前世|转世|替身|旧爱|访客日志|七卷|同一只手|与你相似的访客",
+    re.I,
+)
+
 
 def clamp(value: int, low: int = 0, high: int = 100) -> int:
     return max(low, min(high, int(value)))
@@ -97,6 +104,9 @@ class NarrativeState:
     recent_motifs: List[Dict[str, Any]] = field(default_factory=list)
     recent_modes: List[str] = field(default_factory=list)
     open_threads: List[str] = field(default_factory=list)
+    known_facts: List[str] = field(default_factory=list)
+    cain_scene: str = "garden"
+    last_reward_turns: Dict[str, int] = field(default_factory=dict)
     turn: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
@@ -108,6 +118,9 @@ class NarrativeState:
             "recent_motifs": list(self.recent_motifs),
             "recent_modes": list(self.recent_modes),
             "open_threads": list(self.open_threads),
+            "known_facts": list(self.known_facts),
+            "cain_scene": self.cain_scene,
+            "last_reward_turns": dict(self.last_reward_turns),
             "turn": self.turn,
         }
 
@@ -130,6 +143,12 @@ class NarrativeState:
             recent_motifs=list(payload.get("recent_motifs", [])),
             recent_modes=list(payload.get("recent_modes", [])),
             open_threads=list(payload.get("open_threads", [])),
+            known_facts=list(payload.get("known_facts", [])),
+            cain_scene=str(payload.get("cain_scene", "garden")),
+            last_reward_turns={
+                str(key): int(value)
+                for key, value in payload.get("last_reward_turns", {}).items()
+            },
             turn=int(payload.get("turn", 0)),
         )
 
@@ -140,9 +159,16 @@ class NarrativeEngine:
         events: Iterable[Dict[str, Any]],
         state: Optional[NarrativeState] = None,
         seed: Optional[int] = None,
+        canon: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.events = list(events)
+        self.canon = dict(canon or {})
         self.state = state or NarrativeState()
+        valid_event_ids = {event["id"] for event in self.events}
+        self.state.completed_events = [
+            event_id for event_id in self.state.completed_events
+            if event_id in valid_event_ids
+        ]
         self.random = random.Random(seed)
 
     @classmethod
@@ -154,15 +180,20 @@ class NarrativeEngine:
     ) -> "NarrativeEngine":
         with Path(path).open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
-        return cls(payload["events"], state=state, seed=seed)
+        return cls(
+            payload["events"],
+            state=state,
+            seed=seed,
+            canon=payload.get("canon", {}),
+        )
 
     def infer_intent(self, text: str) -> str:
         text = (text or "").strip()
         groups = (
-            ("challenge", ("不对", "不信", "为什么", "证据", "隐瞒", "矛盾")),
-            ("investigate", ("调查", "看看", "打开", "寻找", "线索", "房间")),
-            ("share", ("我觉得", "我记得", "我经历", "告诉你", "其实")),
-            ("withdraw", ("算了", "不想说", "离开", "以后再说")),
+            ("challenge", ("不对", "不信", "为什么", "凭什么", "证据", "隐瞒", "矛盾")),
+            ("investigate", ("调查", "看看", "打开", "寻找", "线索", "房间", "检查", "验证", "观察")),
+            ("share", ("我觉得", "我记得", "我经历", "我发现", "我注意到", "告诉你", "其实")),
+            ("withdraw", ("算了", "不想说", "我要离开", "我想离开", "以后再说")),
             ("question", ("吗", "呢", "怎么", "什么", "哪里", "谁")),
         )
         for intent, words in groups:
@@ -170,15 +201,29 @@ class NarrativeEngine:
                 return intent
         return "engage"
 
-    def relationship_delta_for(self, intent: str) -> Dict[str, int]:
-        return {
-            "challenge": {"trust": 0, "rapport": 0, "disclosure": 2},
-            "investigate": {"trust": 1, "rapport": 0, "disclosure": 2},
-            "share": {"trust": 2, "rapport": 2, "disclosure": 0},
-            "withdraw": {"trust": 0, "rapport": -1, "disclosure": 0},
-            "question": {"trust": 1, "rapport": 0, "disclosure": 1},
-            "engage": {"trust": 1, "rapport": 1, "disclosure": 0},
-        }.get(intent, {})
+    def _reward_once(self, key: str, cooldown: int = 4) -> bool:
+        last_turn = self.state.last_reward_turns.get(key, -999)
+        if self.state.turn - last_turn < cooldown:
+            return False
+        self.state.last_reward_turns[key] = self.state.turn
+        return True
+
+    def relationship_delta_for(self, intent: str, text: str) -> Dict[str, int]:
+        """Reward meaningful conduct, never mere message volume."""
+        text = (text or "").strip()
+        if intent == "challenge" and any(
+            marker in text for marker in ("证据", "矛盾", "因为", "所以", "依据", "不成立")
+        ):
+            if self._reward_once("reasoned_challenge", cooldown=4):
+                return {"trust": 1, "rapport": 2}
+        if intent == "share" and any(
+            marker in text for marker in ("我发现", "我注意到", "线索", "可以验证", "我记得")
+        ):
+            if self._reward_once("useful_disclosure", cooldown=5):
+                return {"trust": 1, "rapport": 1}
+        if intent == "withdraw":
+            return {"rapport": -1}
+        return {}
 
     def add_belief(
         self,
@@ -264,6 +309,8 @@ class NarrativeEngine:
         issues: List[str] = []
         if PRECISE_BIOMETRIC.search(text or ""):
             issues.append("precise_biometric_measurement")
+        if UNSUPPORTED_LORE.search(text or ""):
+            issues.append("unsupported_third_party_lore")
         current = set(self.detect_motifs(text))
         blocked = set(self.blocked_motifs(window=3))
         if current & blocked:
@@ -285,7 +332,13 @@ class NarrativeEngine:
         self.state.recent_modes = (self.state.recent_modes + [mode])[-6:]
         return mode
 
-    def event_is_eligible(self, event: Dict[str, Any], scene: str) -> bool:
+    def event_is_eligible(
+        self,
+        event: Dict[str, Any],
+        scene: str,
+        intent: str,
+        user_text: str,
+    ) -> bool:
         trigger = event.get("trigger", {})
         if event["id"] in self.state.completed_events:
             return False
@@ -293,6 +346,12 @@ class NarrativeEngine:
             return False
         required_scene = trigger.get("scene")
         if required_scene and required_scene != scene:
+            return False
+        allowed_intents = trigger.get("intents", [])
+        if allowed_intents and intent not in allowed_intents:
+            return False
+        keywords = trigger.get("keywords_any", [])
+        if keywords and not any(word in user_text for word in keywords):
             return False
         if not self.state.relationship.satisfies(trigger.get("min_relationship", {})):
             return False
@@ -303,8 +362,16 @@ class NarrativeEngine:
             return False
         return True
 
-    def select_event(self, scene: str) -> Optional[Dict[str, Any]]:
-        eligible = [event for event in self.events if self.event_is_eligible(event, scene)]
+    def select_event(
+        self,
+        scene: str,
+        intent: str,
+        user_text: str,
+    ) -> Optional[Dict[str, Any]]:
+        eligible = [
+            event for event in self.events
+            if self.event_is_eligible(event, scene, intent, user_text)
+        ]
         if not eligible:
             return None
         eligible.sort(key=lambda event: (-int(event.get("priority", 0)), event["id"]))
@@ -318,6 +385,13 @@ class NarrativeEngine:
             if flag not in self.state.flags:
                 self.state.flags.append(flag)
         self.state.relationship.apply(effects.get("relationship_delta", {}))
+        for fact in effects.get("reveal_facts", []):
+            if fact not in self.state.known_facts:
+                self.state.known_facts.append(fact)
+        action = event.get("cain_action") or {}
+        target_scene = action.get("target_scene")
+        if target_scene:
+            self.state.cain_scene = str(target_scene)
         for thread in effects.get("open_threads", []):
             if thread not in self.state.open_threads:
                 self.state.open_threads.append(thread)
@@ -333,10 +407,10 @@ class NarrativeEngine:
     ) -> Dict[str, Any]:
         self.state.turn += 1
         resolved_intent = intent or self.infer_intent(user_text)
-        relationship_delta = self.relationship_delta_for(resolved_intent)
+        relationship_delta = self.relationship_delta_for(resolved_intent, user_text)
         self.state.relationship.apply(relationship_delta)
 
-        event = self.select_event(scene)
+        event = self.select_event(scene, resolved_intent, user_text)
         if event:
             self.apply_event(event)
 
@@ -370,5 +444,8 @@ class NarrativeEngine:
             } if event else None,
             "avoid_motifs": self.blocked_motifs(window=3),
             "open_threads": list(self.state.open_threads),
+            "known_facts": list(self.state.known_facts),
+            "cain_action": dict(event.get("cain_action", {})) if event else None,
+            "cain_scene": self.state.cain_scene,
             "state": self.state.to_dict(),
         }
