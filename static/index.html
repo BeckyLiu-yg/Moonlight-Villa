@@ -218,7 +218,7 @@ function SettingsPanel({show,onClose,accent,sessionId,playerId,playerName,onSwit
 
   const SLOTS=['slot_1','slot_2','slot_3'];
   const SCENE_NAMES={garden:'月光花园',library:'藏书阁',ballroom:'星光舞厅',attic:'秘密阁楼',basement:'地下酒窖'};
-  const AFF_LABEL=v=>v<20?'戒备':v<40?'观察':v<60?'信任':v<80?'共识':'同盟';
+  const AFF_LABEL=v=>v<25?'戒备':v<40?'留意':v<55?'认可':v<70?'信赖':v<85?'牵念':'选择';
   
   if(!show)return null;
   return <div style={{position:'absolute',inset:0,zIndex:50,background:'rgba(7,6,14,.92)',backdropFilter:'blur(24px)',display:'flex',flexDirection:'column',animation:'fadeIn .3s'}}>
@@ -327,7 +327,7 @@ function ShareCard({show,onClose,text,emotion,scene,affection,accent}){
     ctx.fillText('— Cain Art',W-70,y+40);
     
     // Affection
-    const affLabel=affection<20?'戒备':affection<40?'观察':affection<60?'信任':affection<80?'共识':'同盟';
+    const affLabel=affection<25?'戒备':affection<40?'留意':affection<55?'认可':affection<70?'信赖':affection<85?'牵念':'选择';
     ctx.font='300 12px "Noto Serif SC",serif';ctx.fillStyle='rgba(255,255,255,.15)';ctx.textAlign='center';
     ctx.fillText(`♡ ${affLabel}`,W/2,H-80);
     
