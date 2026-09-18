@@ -53,7 +53,9 @@ const EMOTION_MAP={neutral:'平静',gentle:'稳和',playful:'机敏',thoughtful:
 const MOOD_FX={neutral:{f:'none'},gentle:{f:'saturate(1.1) brightness(1.04)'},playful:{f:'saturate(1.12) brightness(1.06)'},thoughtful:{f:'saturate(.95) brightness(.94)'},mysterious:{f:'saturate(.88) brightness(.9) contrast(1.06)'},shy:{f:'saturate(1.08) brightness(1.02)'},sad:{f:'saturate(.8) brightness(.88)'},touched:{f:'saturate(1.1) brightness(1.05)'},cold:{f:'saturate(.75) brightness(.92) contrast(1.08)'},amused:{f:'saturate(1.15) brightness(1.06)'},longing:{f:'saturate(.9) brightness(.93)'},vulnerable:{f:'saturate(.85) brightness(.9)'}};
 
 const api={
-  post:async(u,b)=>{const r=await fetch(API+u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});if(!r.ok){const e=await r.json().catch(()=>({error:'网络错误'}));const details=Array.isArray(e.details)?e.details.join('；'):e.details;throw new Error(details?e.error+'：'+details:e.error||'失败')}return r.json()},
+  post:async(u,b)=>{const r=await fetch(API+u,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});if(!r.ok){if(r.status===401&&u!=='/api/auth')window.dispatchEvent(new Event('moonlight-auth-expired'));const e=await r.json().catch(()=>({error:'网络错误'}));const details=Array.isArray(e.details)?e.details.join('；'):e.details;throw new Error(details?e.error+'：'+details:e.error||'失败')}return r.json()},
+  me:()=>api.post('/api/me',{}),
+  logout:()=>api.post('/api/logout',{}),
   createSession:()=>api.post('/api/session',{}),
   auth:(name,passcode)=>api.post('/api/auth',{name,passcode}),
   chat:(sid,msg,scene,pid)=>api.post('/api/chat',{session_id:sid,message:msg,scene,player_id:pid}),
@@ -62,7 +64,7 @@ const api={
   save:(sid,slot,pid)=>api.post('/api/save',{session_id:sid,slot,player_id:pid}),
   load:(sid,slot,pid)=>api.post('/api/load',{session_id:sid,slot,player_id:pid}),
   listSaves:(sid,pid)=>api.post('/api/saves/list',{session_id:sid,player_id:pid}),
-  async ttsBlob(text){const r=await fetch(API+'/api/tts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,pre_cleaned:true})});
+  async ttsBlob(text){const r=await fetch(API+'/api/tts',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,pre_cleaned:true})});
     if(!r.ok){const e=await r.json().catch(()=>({error:'语音请求失败'}));const details=(e.details||[]).join('；');throw new Error(details?e.error+'：'+details:e.error||'语音请求失败')}
     return r.blob()},
 };
@@ -174,7 +176,7 @@ function ContinueScreen({saves,onContinue,onNewGame}){
 function AuthScreen({onAuth}){
   const[name,setName]=useState('');const[code,setCode]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
   const submit=async()=>{if(!name.trim()||code.length!==4)return;setLoading(true);setErr('');
-    try{const d=await api.auth(name.trim(),code);onAuth(d.player_id,d.name)}catch(e){setErr(e.message)}finally{setLoading(false)}};
+    try{const d=await api.auth(name.trim(),code);await onAuth(d.player_id,d.name)}catch(e){setErr(e.message)}finally{setLoading(false)}};
   return <div style={{position:'fixed',inset:0,zIndex:100,background:'radial-gradient(ellipse at 50% 40%,#12102a 0%,#07060e 70%)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:"'Cormorant Garamond','Noto Serif SC',serif"}}>
     <Stars count={40}/>
     <div style={{position:'relative',zIndex:2,textAlign:'center',animation:'fadeIn 1s ease-out both',maxWidth:300,width:'100%',padding:'0 24px'}}>
@@ -386,7 +388,7 @@ function HistoryPanel({show,onClose,messages,accent}){const endRef=useRef(null);
       <div ref={endRef}/></div></div>}
 
 /* ============ MAIN ============ */
-const APP_VER = "4.4";
+const APP_VER = "4.5";
 // Version upgrades must never erase account identity or save pointers.
 (function(){
   if(localStorage.getItem('moonlight_ver')!==APP_VER){
@@ -430,6 +432,7 @@ function App(){
     const initSession=async()=>{
       // Always create a server session for in-memory state
       try{
+        const identity=await api.me();
         const d=await api.createSession();
         setSid(d.session_id);setAff(d.affection);setCainScene(d.cain_scene||'garden');setTtsProvider(d.tts_provider||null);
         if(d.opening_reply){
@@ -438,8 +441,8 @@ function App(){
           setEmotion(d.emotion||'mysterious');
         }
         // Check for stored auth
-        const storedPid=localStorage.getItem('moonlight_pid');
-        const storedName=localStorage.getItem('moonlight_name');
+        const storedPid=identity.player_id;
+        const storedName=identity.name;
         if(storedPid&&storedName){
           setPlayerId(storedPid);setPlayerName(storedName);
           // Check saves for this player
@@ -451,7 +454,7 @@ function App(){
           }catch(e){setExistingSaves({});setAccountNotice(e.message||'云端存档暂时读取失败')}
         }
         setReady(true);
-      }catch(e){setError('无法连接服务器')}
+      }catch(e){setAccountNotice(e.message);setReady(true)}
     };
     initSession();
   },[]);
@@ -495,14 +498,21 @@ function App(){
     }
   };
 
+  useEffect(()=>{const expired=()=>{setPlayerId(null);setPhase('auth');setAccountNotice('登录已失效，请重新登录')};
+    window.addEventListener('moonlight-auth-expired',expired);return()=>window.removeEventListener('moonlight-auth-expired',expired)},[]);
+
   // Auth completed
   const handleAuth=async(pid,name)=>{
+    const fresh=await api.createSession();
+    setSid(fresh.session_id);setAff(fresh.affection);setScene('garden');setCainScene(fresh.cain_scene||'garden');setTtsProvider(fresh.tts_provider||null);
+    setLatestReply(fresh.opening_reply||'');setMsgs(fresh.opening_reply?[{role:'ai',text:fresh.opening_reply}]:[]);
+    setAccountNotice('');
     setPlayerId(pid);setPlayerName(name);
     localStorage.setItem('moonlight_pid',pid);
     localStorage.setItem('moonlight_name',name);
     // Check saves
     try{
-      const saves=await api.listSaves(sid,pid);
+      const saves=await api.listSaves(fresh.session_id,pid);
       if(saves.saves&&Object.keys(saves.saves).length>0){
         setExistingSaves(saves.saves);setPhase('continue');return;
       }
@@ -520,7 +530,8 @@ function App(){
     }
   };
 
-  const switchAccount=()=>{
+  const switchAccount=async()=>{
+    try{await api.logout()}catch(e){setAccountNotice(e.message);return;}
     localStorage.removeItem('moonlight_pid');localStorage.removeItem('moonlight_name');
     setPlayerId(null);setPlayerName('');setExistingSaves(null);setAccountNotice('');
     setShowSettings(false);setPhase('auth');
@@ -741,7 +752,7 @@ function App(){
       {/* Input */}
       <div style={{padding:`8px ${px}px 10px`,paddingBottom:`calc(10px + env(safe-area-inset-bottom))`}}>
         <div style={{display:'flex',gap:8,alignItems:'center',background:'rgba(12,11,20,.55)',backdropFilter:'blur(18px)',borderRadius:22,border:`1px solid ${inputFocused?sc.accent+'40':'rgba(255,255,255,.06)'}`,padding:'6px 6px 6px 18px',transition:'all .3s',boxShadow:inputFocused?`0 0 20px ${sc.accent}10`:'none'}}>
-          <input ref={inputRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}}
+          <input ref={inputRef} maxLength={500} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}}
             onFocus={()=>setInputFocused(true)} onBlur={()=>setInputFocused(false)} placeholder={!cainHere?`Cain 已前往${SCENES[cainScene]?.name||'别处'}，选择地点跟上他…`:loading?'Cain 正在回应…':'向 Cain 提问或提交线索…'} disabled={loading||!ready||!cainHere}
             style={{flex:1,background:'transparent',border:'none',outline:'none',color:'#e8e0f0',fontSize:fs,fontFamily:'inherit',lineHeight:1.4}}/>
           <button onClick={send} disabled={loading||!input.trim()||!ready||!cainHere} style={{width:40,height:40,borderRadius:16,border:'none',
@@ -754,3 +765,4 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 </body>
 </html>
+

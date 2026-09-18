@@ -3,3 +3,7 @@ __pycache__/
 saves/
 .env
 *.log
+
+
+security.sqlite3*
+__pycache__/
