@@ -1,14 +1,15 @@
 """
 月光罅隙 v4.4 - 固定世界事实、角色行动与可靠请求
 """
-from flask import Flask, request, jsonify, send_file, send_from_directory, make_response
-from flask_cors import CORS
+from flask import Flask, request, jsonify, send_file, send_from_directory, make_response, g
+from access_control import Guard, QuotaExceeded
+import hashlib, hmac
 from datetime import datetime, timezone
 import requests as http_req, json, uuid, io, re, time, os, random, base64, threading, copy
 from director_runtime import DirectorRuntime, director_enabled
 
 app = Flask(__name__, static_folder='static')
-CORS(app)
+
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
@@ -90,7 +91,8 @@ def sb(method, table, data=None, params=None):
         return None
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     if params:
-        url += "?" + "&".join(f"{key}={value}" for key, value in params.items())
+        from urllib.parse import urlencode
+        url += "?" + urlencode(params)
     headers = {
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -182,7 +184,7 @@ def generate_memory(player_id, session):
     conv_text = ""
     for m in recent:
         if m["role"] == "user":
-            conv_text += f"玩家：{m['content']}\n"
+            conv_text += f"玩家：{m['content'][:500]}\n"
         elif m["role"] == "assistant":
             conv_text += f"该隐：{m['content'][:150]}\n"
     
@@ -190,6 +192,7 @@ def generate_memory(player_id, session):
     turn_range = f"{max(1,user_turns-30)}-{user_turns}"
     
     try:
+        GUARD.paid("llm")
         r = http_req.post(DEEPSEEK_API_URL,
             headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
             json={"model": DEEPSEEK_MODEL, "thinking": {"type": "disabled"}, "messages": [
@@ -301,6 +304,7 @@ def get_story_context(session):
 
 
 sessions = {}
+GUARD = Guard(app, os.environ.get("AUTH_SECRET") or hashlib.sha256(("moonlight-auth:" + (DEEPSEEK_API_KEY or os.urandom(32).hex())).encode()).hexdigest(), sessions)
 
 def pack_triggered_events(session):
     events = [
@@ -502,7 +506,7 @@ def load_game(sid, slot="auto"):
     return data
 
 
-APP_VERSION = "4.4"
+APP_VERSION = "4.5"
 
 @app.route('/')
 def index():
@@ -521,8 +525,9 @@ def serve_static(filename):
 
 @app.route('/api/session', methods=['POST'])
 def create_session():
-    sid = str(uuid.uuid4())[:8]
+    sid = str(uuid.uuid4())
     session = get_session(sid)
+    session["owner_id"] = g.identity["player_id"]
     if not session["messages"]:
         session["messages"].append({"role": "assistant", "content": OPENING_REPLY})
     return jsonify({
@@ -571,6 +576,7 @@ def _deepseek_completion(messages, *, temperature, max_tokens, retry=True, extra
             }
             if extra:
                 payload.update(extra)
+            GUARD.paid("llm")
             response = http_req.post(
                 DEEPSEEK_API_URL,
                 headers={
@@ -629,6 +635,15 @@ def chat():
                 api_messages.append({"role": "user", "content": item["content"]})
                 api_messages.append({"role": "assistant", "content": "（了解。）"})
 
+        remaining = 6000
+        bounded = []
+        for item in reversed(api_messages[1:]):
+            content = str(item["content"])[:500]
+            if len(content) > remaining:
+                break
+            bounded.append({"role": item["role"], "content": content})
+            remaining -= len(content)
+        api_messages = [{"role": "system", "content": prompt[:12000]}] + list(reversed(bounded))
         result, retried = _deepseek_completion(
             api_messages,
             temperature=0.55,
@@ -719,6 +734,9 @@ def chat():
                 "quality_repaired": bool(quality_issues),
             },
         })
+    except QuotaExceeded:
+        _restore_failed_turn(sid, session, snapshot)
+        raise
     except DeepSeekUnavailable:
         _restore_failed_turn(sid, session, snapshot)
         return jsonify({
@@ -779,6 +797,7 @@ def tts():
                     "operation": "query",
                 },
             }
+            GUARD.paid("tts")
             response = http_req.post(
                 VOLC_TTS_URL,
                 headers={"x-api-key": VOLC_TTS_TOKEN, "Content-Type": "application/json"},
@@ -795,6 +814,8 @@ def tts():
                 )
             else:
                 provider_errors.append(f"Volcengine HTTP {response.status_code}")
+        except QuotaExceeded:
+            raise
         except Exception as exc:
             provider_errors.append(f"Volcengine 请求失败：{type(exc).__name__}")
 
@@ -809,6 +830,7 @@ def tts():
             }
             if FISH_VOICE_MODEL_ID:
                 payload["reference_id"] = FISH_VOICE_MODEL_ID
+            GUARD.paid("tts")
             response = http_req.post(
                 FISH_AUDIO_TTS_URL,
                 headers={
@@ -821,6 +843,8 @@ def tts():
             if response.status_code == 200:
                 return send_file(io.BytesIO(response.content), mimetype="audio/mpeg")
             provider_errors.append(f"Fish Audio HTTP {response.status_code}")
+        except QuotaExceeded:
+            raise
         except Exception as exc:
             provider_errors.append(f"Fish Audio 请求失败：{type(exc).__name__}")
 
@@ -849,30 +873,41 @@ def change_scene():
     return jsonify({"error":"未知场景"}),400
 
 # ============ Auth ============
+@app.route('/api/me', methods=['POST'])
+def me():
+    return jsonify(g.identity)
+
+@app.route('/api/logout', methods=['POST'])
+def logout():
+    response = jsonify(success=True)
+    response.delete_cookie('moonlight_auth', secure=True, httponly=True, samesite='Strict')
+    return response
+
 @app.route('/api/auth', methods=['POST'])
 def auth():
-    """Register or login with traveler name + 4-digit passcode."""
-    data=request.json
-    name=data.get('name','').strip()
-    code=data.get('passcode','').strip()
-    if not name or len(name)>20: return jsonify({"error":"旅人名须1-20字"}),400
-    if not re.match(r'^\d{4}$', code): return jsonify({"error":"暗号须为4位数字"}),400
-    
-    if supabase_enabled():
-        # Check if player exists
-        existing = sb("GET", "players", params={"name":f"eq.{name}","select":"id,passcode"})
-        if existing and len(existing)>0:
-            if existing[0]["passcode"] != code:
-                return jsonify({"error":"暗号不正确"}),401
-            pid = existing[0]["id"]
-        else:
-            result = sb("POST", "players", data={"name":name,"passcode":code})
-            if not result: return jsonify({"error":"注册失败"}),500
-            pid = result[0]["id"]
-        return jsonify({"player_id":pid,"name":name})
+    data=request.get_json()
+    name=data.get('name','')
+    code=data.get('passcode','')
+    if not isinstance(name,str) or not isinstance(code,str):
+        return jsonify(error='无效账户信息'),400
+    name=name.strip()
+    if not name or len(name)>20: return jsonify(error='旅人名须1—20字'),400
+    if not re.fullmatch(r'[0-9]{4}',code): return jsonify(error='暗号须为4位数字'),400
+    if not supabase_enabled():
+        return jsonify(error='账户服务暂不可用，请稍后重试'),503
+    existing=sb('GET','players',params={'name':f'eq.{name}','select':'id,passcode'})
+    if existing is None:
+        return jsonify(error='账户服务暂不可用，请稍后重试'),503
+    if existing:
+        if not hmac.compare_digest(str(existing[0]['passcode']),code):
+            return jsonify(error='旅人名或暗号不正确'),401
+        pid=existing[0]['id']
     else:
-        # Local fallback: use name as session ID
-        return jsonify({"player_id":name,"name":name})
+        GUARD.count('registrations',10)
+        result=sb('POST','players',data={'name':name,'passcode':code})
+        if not result: return jsonify(error='注册失败'),503
+        pid=result[0]['id']
+    return GUARD.login_response(pid,name)
 
 # ============ Supabase Save/Load ============
 def save_game_db(player_id, slot, session):
@@ -1020,3 +1055,4 @@ if __name__=='__main__':
     print(f"   Speaker: {VOLC_TTS_SPEAKER} | AppID: {VOLC_TTS_APPID} | Cluster: {VOLC_TTS_CLUSTER}")
     print(f"   Supabase: {'✓' if SUPABASE_URL else '✕ (file fallback)'}")
     app.run(host='0.0.0.0',port=PORT,debug=os.environ.get("DEBUG","1")=="1")
+
